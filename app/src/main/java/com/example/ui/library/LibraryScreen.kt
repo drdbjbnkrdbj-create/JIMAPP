@@ -1,6 +1,13 @@
 package com.example.ui.library
 
 import android.content.Intent
+import android.content.ActivityNotFoundException
+import android.net.Uri
+import android.provider.OpenableColumns
+import android.webkit.MimeTypeMap
+import android.widget.Toast
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -81,6 +88,69 @@ fun LibraryScreen(
     val activeFilter by viewModel.libraryFilter.collectAsState()
 
     var showAddFileDialog by remember { mutableStateOf(false) }
+    val filePicker = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.OpenDocument()
+    ) { uri ->
+        if (uri != null) {
+            val hasPersistentAccess = try {
+                context.contentResolver.takePersistableUriPermission(
+                    uri,
+                    Intent.FLAG_GRANT_READ_URI_PERMISSION
+                )
+                true
+            } catch (error: SecurityException) {
+                Toast.makeText(context, "تعذر الاحتفاظ بإذن قراءة الملف.", Toast.LENGTH_LONG).show()
+                false
+            }
+
+            if (hasPersistentAccess) {
+                var fileName = uri.lastPathSegment?.substringAfterLast('/') ?: "مستند"
+                var fileSizeBytes: Long? = null
+                context.contentResolver.query(
+                    uri,
+                    arrayOf(OpenableColumns.DISPLAY_NAME, OpenableColumns.SIZE),
+                    null,
+                    null,
+                    null
+                )?.use { cursor ->
+                    if (cursor.moveToFirst()) {
+                        val nameColumn = cursor.getColumnIndex(OpenableColumns.DISPLAY_NAME)
+                        val sizeColumn = cursor.getColumnIndex(OpenableColumns.SIZE)
+                        if (nameColumn >= 0) fileName = cursor.getString(nameColumn) ?: fileName
+                        if (sizeColumn >= 0 && !cursor.isNull(sizeColumn)) {
+                            fileSizeBytes = cursor.getLong(sizeColumn)
+                        }
+                    }
+                }
+
+                val mimeType = context.contentResolver.getType(uri)
+                    ?: MimeTypeMap.getSingleton()
+                        .getMimeTypeFromExtension(fileName.substringAfterLast('.', "").lowercase())
+                    ?: "*/*"
+                val extension = fileName.substringAfterLast('.', "").lowercase()
+                val fileType = when {
+                    mimeType == "application/pdf" || extension == "pdf" -> "PDF"
+                    extension in setOf("doc", "docx", "odt") ||
+                        mimeType.contains("word", ignoreCase = true) -> "WORD"
+                    extension in setOf("ppt", "pptx", "odp") ||
+                        mimeType.contains("presentation", ignoreCase = true) ||
+                        mimeType.contains("powerpoint", ignoreCase = true) -> "PPTX"
+                    mimeType.startsWith("image/") -> "IMAGE"
+                    else -> "FILE"
+                }
+                val title = fileName.substringBeforeLast('.', fileName).ifBlank { fileName }
+                viewModel.addDocument(
+                    courseId = null,
+                    title = title,
+                    fileType = fileType,
+                    fileSize = formatFileSize(fileSizeBytes),
+                    category = "محاضرات",
+                    contentSnippet = "",
+                    uri = uri.toString()
+                )
+            }
+        }
+    }
 
     val filterChips = listOf("الكل", "PDF", "Word", "PowerPoint")
 
@@ -101,13 +171,13 @@ fun LibraryScreen(
     Scaffold(
         floatingActionButton = {
             FloatingActionButton(
-                onClick = { showAddFileDialog = true },
+                onClick = { filePicker.launch(arrayOf("*/*")) },
                 containerColor = JimPrimaryBlue,
                 contentColor = Color.White,
                 shape = CircleShape,
                 modifier = Modifier.testTag("add_document_fab")
             ) {
-                Icon(imageVector = Icons.Default.Add, contentDescription = "إضافة ملف")
+                Icon(imageVector = Icons.Default.Add, contentDescription = "استيراد ملف")
             }
         }
     ) { innerPadding ->
@@ -230,12 +300,45 @@ fun LibraryScreen(
                     items(filteredDocs) { doc ->
                         LibraryDocumentCard(
                             doc = doc,
-                            onClick = { onOpenDoc(doc.id) },
+                            onClick = {
+                                val documentUri = doc.uri
+                                if (documentUri == null) {
+                                    onOpenDoc(doc.id)
+                                } else {
+                                    val fileUri = Uri.parse(documentUri)
+                                    val mimeType = context.contentResolver.getType(fileUri)
+                                        ?: "*/*"
+                                    val openIntent = Intent(Intent.ACTION_VIEW)
+                                        .setDataAndType(fileUri, mimeType)
+                                        .addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                                    try {
+                                        context.startActivity(
+                                            Intent.createChooser(openIntent, "فتح ${doc.title}")
+                                        )
+                                    } catch (error: ActivityNotFoundException) {
+                                        Toast.makeText(
+                                            context,
+                                            "لا يوجد تطبيق لفتح هذا النوع من الملفات.",
+                                            Toast.LENGTH_LONG
+                                        ).show()
+                                    }
+                                }
+                            },
                             onShare = {
-                                val sendIntent: Intent = Intent().apply {
-                                    action = Intent.ACTION_SEND
-                                    putExtra(Intent.EXTRA_TEXT, "مستند دراسي من تطبيق جيم: ${doc.title}\n\n${doc.contentSnippet.take(200)}")
-                                    type = "text/plain"
+                                val documentUri = doc.uri
+                                val sendIntent = Intent(Intent.ACTION_SEND).apply {
+                                    if (documentUri == null) {
+                                        putExtra(
+                                            Intent.EXTRA_TEXT,
+                                            "مستند دراسي من تطبيق جيم: ${doc.title}\n\n${doc.contentSnippet.take(200)}"
+                                        )
+                                        type = "text/plain"
+                                    } else {
+                                        val fileUri = Uri.parse(documentUri)
+                                        putExtra(Intent.EXTRA_STREAM, fileUri)
+                                        type = context.contentResolver.getType(fileUri) ?: "*/*"
+                                        addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                                    }
                                 }
                                 val shareIntent = Intent.createChooser(sendIntent, "مشاركة المستند")
                                 context.startActivity(shareIntent)
@@ -261,6 +364,14 @@ fun LibraryScreen(
             }
         )
     }
+}
+
+private fun formatFileSize(bytes: Long?): String {
+    if (bytes == null || bytes < 0L) return "الحجم غير معروف"
+    if (bytes < 1024L) return "$bytes B"
+    val kilobytes = bytes / 1024.0
+    if (kilobytes < 1024.0) return "%.1f KB".format(kilobytes)
+    return "%.1f MB".format(kilobytes / 1024.0)
 }
 
 @Composable

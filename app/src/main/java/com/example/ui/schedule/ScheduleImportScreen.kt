@@ -44,15 +44,6 @@ import com.example.data.model.TimetableSessionEntity
 import com.example.ui.JimViewModel
 import com.example.ui.components.JimTopBar
 
-data class ParsedSessionDraft(
-    var dayOfWeek: Int = 1,
-    var courseName: String = "",
-    var startTime: String = "08:00",
-    var endTime: String = "09:00",
-    var classroom: String = "",
-    var sessionType: String = "محاضرة"
-)
-
 @Composable
 fun ScheduleImportScreen(
     viewModel: JimViewModel,
@@ -81,64 +72,10 @@ fun ScheduleImportScreen(
     fun parseScheduleText(text: String) {
         extractedList.clear()
         parseError = null
-
-        val lines = text.lines().map { it.trim() }.filter { it.isNotBlank() }
-        val dayMap = mapOf(
-            "الأحد" to 1, "الاحد" to 1, "Sunday" to 1,
-            "الإثنين" to 2, "الاثنين" to 2, "Monday" to 2,
-            "الثلاثاء" to 3, "Tuesday" to 3,
-            "الأربعاء" to 4, "الاربعاء" to 4, "Wednesday" to 4,
-            "الخميس" to 5, "Thursday" to 5
-        )
-
-        for (line in lines) {
-            var foundDay = 1
-            for ((key, value) in dayMap) {
-                if (line.contains(key)) {
-                    foundDay = value
-                    break
-                }
-            }
-
-            // Extract times like 08:00, 10:30
-            val timeRegex = Regex("""(\d{1,2}:\d{2})""")
-            val timeMatches = timeRegex.findAll(line).toList()
-            val startTime = if (timeMatches.isNotEmpty()) timeMatches[0].value else "08:00"
-            val endTime = if (timeMatches.size > 1) timeMatches[1].value else "09:30"
-
-            // Extract classroom if available (e.g. H1, H2, Lab6, C1, قاعة 2)
-            val roomRegex = Regex("""(H\d+|Lab\d+|C\d+|قاعة\s*\w+|معمل\s*\w+)""", RegexOption.IGNORE_CASE)
-            val roomMatch = roomRegex.find(line)?.value ?: ""
-
-            // Extract session type
-            val type = if (line.contains("معمل") || line.contains("Lab", ignoreCase = true)) "معمل" else "محاضرة"
-
-            // Extract course name by removing day, time, room keywords
-            var cleanName = line
-            dayMap.keys.forEach { cleanName = cleanName.replace(it, "") }
-            cleanName = cleanName.replace(Regex("""[:\-منإلى,]"""), " ")
-            timeMatches.forEach { cleanName = cleanName.replace(it.value, "") }
-            if (roomMatch.isNotBlank()) cleanName = cleanName.replace(roomMatch, "")
-            cleanName = cleanName.replace("قاعة", "").replace("معمل", "").trim()
-
-            if (cleanName.isBlank()) {
-                cleanName = "محاضرة جامعية"
-            }
-
-            extractedList.add(
-                ParsedSessionDraft(
-                    dayOfWeek = foundDay,
-                    courseName = cleanName,
-                    startTime = startTime,
-                    endTime = endTime,
-                    classroom = roomMatch,
-                    sessionType = type
-                )
-            )
-        }
+        extractedList.addAll(ScheduleTextParser.parse(text))
 
         if (extractedList.isEmpty()) {
-            parseError = "تعذر استخراج الحصص تلقائياً من النص. يرجى التأكد من كتابة اليوم وأوقات الحصص."
+            parseError = "تعذر استخراج الحصص. تأكد أن كل سطر يحتوي اليوم واسم المادة ووقتي البداية والنهاية."
         }
     }
 

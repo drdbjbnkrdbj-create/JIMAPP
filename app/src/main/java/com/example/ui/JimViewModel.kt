@@ -406,7 +406,15 @@ class JimViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     // Library Operations
-    fun addDocument(courseId: Long?, title: String, fileType: String, fileSize: String, category: String, contentSnippet: String) {
+    fun addDocument(
+        courseId: Long?,
+        title: String,
+        fileType: String,
+        fileSize: String,
+        category: String,
+        contentSnippet: String,
+        uri: String? = null
+    ) {
         viewModelScope.launch {
             repository.addDocument(
                 LibraryDocumentEntity(
@@ -414,6 +422,7 @@ class JimViewModel(application: Application) : AndroidViewModel(application) {
                     title = title,
                     fileType = fileType,
                     fileSize = fileSize,
+                    uri = uri,
                     category = category,
                     lastReadPage = 1,
                     totalPages = 10,
