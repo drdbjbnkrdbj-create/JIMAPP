@@ -1,0 +1,6 @@
+{
+  "name": "Jim",
+  "description": "رفيقك الجامعي.. تنظيم دراستك، بكل ذكاء - إدارة المواد، الجداول، المهام، الاختبارات، والمكتبة الجامعية",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

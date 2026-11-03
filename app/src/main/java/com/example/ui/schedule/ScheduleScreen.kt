@@ -1,0 +1,429 @@
+package com.example.ui.schedule
+
+import androidx.compose.foundation.background
+import androidx.compose.foundation.border
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.Delete
+import androidx.compose.material.icons.filled.FileDownload
+import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.Button
+import androidx.compose.material3.Card
+import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.DropdownMenuItem
+import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.ExposedDropdownMenuBox
+import androidx.compose.material3.ExposedDropdownMenuDefaults
+import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.collectAsState
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.mutableLongStateOf
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
+import com.example.data.model.CourseEntity
+import com.example.data.model.TimetableSessionEntity
+import com.example.ui.JimViewModel
+import com.example.ui.components.CourseIconBadge
+import com.example.ui.theme.JimPrimaryBlue
+
+@Composable
+fun ScheduleScreen(
+    viewModel: JimViewModel,
+    onOpenImport: () -> Unit,
+    onOpenCourse: (Long) -> Unit,
+    modifier: Modifier = Modifier
+) {
+    val selectedDay by viewModel.selectedDayOfWeek.collectAsState()
+    val sessions by viewModel.sessions.collectAsState()
+    val courses by viewModel.courses.collectAsState()
+
+    var showAddSessionDialog by remember { mutableStateOf(false) }
+
+    val days = listOf(
+        1 to "الأحد",
+        2 to "الإثنين",
+        3 to "الثلاثاء",
+        4 to "الأربعاء",
+        5 to "الخميس"
+    )
+
+    val currentDayName = days.find { it.first == selectedDay }?.second ?: "الأحد"
+    val daySessions = sessions.filter { it.dayOfWeek == selectedDay }
+
+    Column(
+        modifier = modifier
+            .fillMaxSize()
+            .padding(horizontal = 16.dp)
+            .testTag("schedule_screen")
+    ) {
+        Spacer(modifier = Modifier.height(12.dp))
+
+        // Top Header matching screenshot
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            // Import schedule button
+            IconButton(
+                onClick = onOpenImport,
+                modifier = Modifier
+                    .size(40.dp)
+                    .clip(CircleShape)
+                    .background(MaterialTheme.colorScheme.surfaceVariant)
+                    .testTag("import_schedule_button")
+            ) {
+                Icon(
+                    imageVector = Icons.Default.FileDownload,
+                    contentDescription = "استيراد جدول",
+                    tint = JimPrimaryBlue
+                )
+            }
+
+            Text(
+                text = "الجدول الجامعي",
+                style = MaterialTheme.typography.titleLarge,
+                fontWeight = FontWeight.Bold,
+                color = MaterialTheme.colorScheme.onBackground
+            )
+
+            // Add session button
+            IconButton(
+                onClick = { showAddSessionDialog = true },
+                modifier = Modifier
+                    .size(40.dp)
+                    .clip(CircleShape)
+                    .background(MaterialTheme.colorScheme.surfaceVariant)
+                    .testTag("add_session_button")
+            ) {
+                Icon(
+                    imageVector = Icons.Default.Add,
+                    contentDescription = "إضافة محاضرة",
+                    tint = JimPrimaryBlue
+                )
+            }
+        }
+
+        Spacer(modifier = Modifier.height(16.dp))
+
+        // Days selector pills (Sunday -> Thursday) matching the screenshot
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .clip(RoundedCornerShape(16.dp))
+                .background(MaterialTheme.colorScheme.surfaceVariant)
+                .padding(4.dp),
+            horizontalArrangement = Arrangement.SpaceBetween
+        ) {
+            days.forEach { (dayIndex, dayLabel) ->
+                val isSelected = selectedDay == dayIndex
+                Box(
+                    modifier = Modifier
+                        .weight(1f)
+                        .clip(RoundedCornerShape(12.dp))
+                        .background(
+                            if (isSelected) JimPrimaryBlue else Color.Transparent
+                        )
+                        .clickable { viewModel.selectScheduleDay(dayIndex) }
+                        .padding(vertical = 10.dp)
+                        .testTag("schedule_day_tab_$dayIndex"),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Text(
+                        text = dayLabel,
+                        style = MaterialTheme.typography.labelMedium,
+                        fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal,
+                        color = if (isSelected) Color.White else MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
+            }
+        }
+
+        Spacer(modifier = Modifier.height(16.dp))
+
+        // Selected Day Date Subtitle
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Text(
+                text = "جدول يوم $currentDayName",
+                style = MaterialTheme.typography.titleMedium,
+                fontWeight = FontWeight.Bold,
+                color = MaterialTheme.colorScheme.onBackground
+            )
+            Text(
+                text = "${daySessions.size} محاضرات / معامل",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+        }
+
+        Spacer(modifier = Modifier.height(12.dp))
+
+        // Timetable sessions list
+        if (daySessions.isEmpty()) {
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(vertical = 40.dp),
+                contentAlignment = Alignment.Center
+            ) {
+                Text(
+                    text = "لا توجد محاضرات مجدولة لهذا اليوم.\nيمكنك إضافة حصة يدوياً أو استيراد الجدول بنقرة واحدة.",
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    textAlign = androidx.compose.ui.text.style.TextAlign.Center
+                )
+            }
+        } else {
+            LazyColumn(
+                verticalArrangement = Arrangement.spacedBy(12.dp),
+                modifier = Modifier.fillMaxSize()
+            ) {
+                items(daySessions) { session ->
+                    val course = courses.find { it.id == session.courseId }
+                    TimetableSessionItem(
+                        session = session,
+                        course = course,
+                        onOpenCourse = { course?.let { onOpenCourse(it.id) } },
+                        onDelete = { viewModel.deleteSession(session) }
+                    )
+                }
+
+                item {
+                    Spacer(modifier = Modifier.height(32.dp))
+                }
+            }
+        }
+    }
+
+    if (showAddSessionDialog) {
+        AddSessionDialog(
+            courses = courses,
+            initialDay = selectedDay,
+            onDismiss = { showAddSessionDialog = false },
+            onConfirm = { courseId, day, start, end, room, type ->
+                viewModel.addSession(courseId, day, start, end, room, type)
+                showAddSessionDialog = false
+            }
+        )
+    }
+}
+
+@Composable
+fun TimetableSessionItem(
+    session: TimetableSessionEntity,
+    course: CourseEntity?,
+    onOpenCourse: () -> Unit,
+    onDelete: () -> Unit
+) {
+    Card(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(16.dp))
+            .clickable { onOpenCourse() }
+            .testTag("session_item_${session.id}"),
+        shape = RoundedCornerShape(16.dp),
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant)
+    ) {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(14.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            CourseIconBadge(
+                iconKey = course?.iconKey ?: "computer",
+                colorHex = course?.colorHex ?: "#2563EB",
+                size = 46.dp
+            )
+            Spacer(modifier = Modifier.width(14.dp))
+            Column(modifier = Modifier.weight(1f)) {
+                Text(
+                    text = course?.name ?: "مقرر دراسي",
+                    style = MaterialTheme.typography.titleSmall,
+                    fontWeight = FontWeight.Bold,
+                    color = MaterialTheme.colorScheme.onSurface
+                )
+                Spacer(modifier = Modifier.height(3.dp))
+                Text(
+                    text = "${session.startTime} - ${session.endTime}",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+                if (session.classroom.isNotBlank()) {
+                    Spacer(modifier = Modifier.height(2.dp))
+                    Text(
+                        text = "القاعة: ${session.classroom}",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.primary
+                    )
+                }
+            }
+
+            Column(horizontalAlignment = Alignment.End) {
+                Box(
+                    modifier = Modifier
+                        .clip(RoundedCornerShape(8.dp))
+                        .background(MaterialTheme.colorScheme.background)
+                        .padding(horizontal = 8.dp, vertical = 4.dp)
+                ) {
+                    Text(
+                        text = session.sessionType,
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
+                Spacer(modifier = Modifier.height(4.dp))
+                IconButton(onClick = onDelete, modifier = Modifier.size(28.dp)) {
+                    Icon(
+                        imageVector = Icons.Default.Delete,
+                        contentDescription = "حذف",
+                        tint = MaterialTheme.colorScheme.error.copy(alpha = 0.6f),
+                        modifier = Modifier.size(18.dp)
+                    )
+                }
+            }
+        }
+    }
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+fun AddSessionDialog(
+    courses: List<CourseEntity>,
+    initialDay: Int,
+    onDismiss: () -> Unit,
+    onConfirm: (Long, Int, String, String, String, String) -> Unit
+) {
+    if (courses.isEmpty()) {
+        AlertDialog(
+            onDismissRequest = onDismiss,
+            title = { Text("تنبيه") },
+            text = { Text("يرجى إضافة مواد دراسية أولاً لتتمكن من جدولتها.") },
+            confirmButton = { Button(onClick = onDismiss) { Text("حسناً") } }
+        )
+        return
+    }
+
+    var selectedCourseId by remember { mutableLongStateOf(courses.first().id) }
+    var selectedDay by remember { mutableIntStateOf(initialDay) }
+    var startTime by remember { mutableStateOf("08:00") }
+    var endTime by remember { mutableStateOf("09:00") }
+    var classroom by remember { mutableStateOf("") }
+    var sessionType by remember { mutableStateOf("محاضرة") }
+
+    val days = listOf(1 to "الأحد", 2 to "الإثنين", 3 to "الثلاثاء", 4 to "الأربعاء", 5 to "الخميس")
+
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("إضافة حصة دراسية للجدول", fontWeight = FontWeight.Bold) },
+        text = {
+            Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                Text("المادة الدراسية:")
+                Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                    courses.take(3).forEach { c ->
+                        val isSel = selectedCourseId == c.id
+                        Button(
+                            onClick = { selectedCourseId = c.id },
+                            colors = androidx.compose.material3.ButtonDefaults.buttonColors(
+                                containerColor = if (isSel) JimPrimaryBlue else MaterialTheme.colorScheme.surfaceVariant
+                            ),
+                            modifier = Modifier.weight(1f)
+                        ) {
+                            Text(c.code, fontSize = 11.sp, color = if (isSel) Color.White else MaterialTheme.colorScheme.onSurface)
+                        }
+                    }
+                }
+
+                Text("اليوم:")
+                Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(2.dp)) {
+                    days.forEach { (d, label) ->
+                        val isSel = selectedDay == d
+                        Button(
+                            onClick = { selectedDay = d },
+                            colors = androidx.compose.material3.ButtonDefaults.buttonColors(
+                                containerColor = if (isSel) JimPrimaryBlue else MaterialTheme.colorScheme.surfaceVariant
+                            ),
+                            modifier = Modifier.weight(1f)
+                        ) {
+                            Text(label.take(3), fontSize = 10.sp, color = if (isSel) Color.White else MaterialTheme.colorScheme.onSurface)
+                        }
+                    }
+                }
+
+                Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    OutlinedTextField(
+                        value = startTime,
+                        onValueChange = { startTime = it },
+                        label = { Text("البداية") },
+                        modifier = Modifier.weight(1f)
+                    )
+                    OutlinedTextField(
+                        value = endTime,
+                        onValueChange = { endTime = it },
+                        label = { Text("النهاية") },
+                        modifier = Modifier.weight(1f)
+                    )
+                }
+
+                Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    OutlinedTextField(
+                        value = classroom,
+                        onValueChange = { classroom = it },
+                        label = { Text("القاعة / المعمل") },
+                        modifier = Modifier.weight(1f)
+                    )
+                    Button(
+                        onClick = { sessionType = if (sessionType == "محاضرة") "معمل" else "محاضرة" },
+                        modifier = Modifier.weight(1f).align(Alignment.CenterVertically)
+                    ) {
+                        Text(sessionType)
+                    }
+                }
+            }
+        },
+        confirmButton = {
+            Button(onClick = { onConfirm(selectedCourseId, selectedDay, startTime, endTime, classroom, sessionType) }) {
+                Text("حفظ الحصة")
+            }
+        },
+        dismissButton = {
+            TextButton(onClick = onDismiss) { Text("إلغاء") }
+        }
+    )
+}
