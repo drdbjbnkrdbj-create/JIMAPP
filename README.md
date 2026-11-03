@@ -20,3 +20,7 @@ View your app in AI Studio: https://ai.studio/apps/520efd69-e5fa-4bf2-b0f3-45196
 5. Remove this line from the app's `build.gradle.kts` file: `signingConfig = signingConfigs.getByName("debugConfig")`
 6. Run the app on an emulator or physical device
 7. If you have already published your app in AI Studio, please [request upload key reset](https://support.google.com/googleplay/android-developer/answer/9842756#zippy=%2Crequest-an-upload-key-reset) in Google Play Console.
+
+## Download a debug APK
+
+Every push to `main` builds a debug APK. Open the repository's **Actions** tab, select the latest **Build Android APK** run, and download the `jim-debug-apk` artifact. This debug-signed APK is for testing and direct installation, not Play Store publishing.
