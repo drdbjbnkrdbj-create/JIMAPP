@@ -1,5 +1,6 @@
 package com.example.data
 
+import androidx.room.withTransaction
 import com.example.data.dao.JimDao
 import com.example.data.model.AssessmentEntity
 import com.example.data.model.AssignmentEntity
@@ -11,11 +12,18 @@ import com.example.data.model.LectureEntity
 import com.example.data.model.LibraryDocumentEntity
 import com.example.data.model.StudentProfileEntity
 import com.example.data.model.TimetableSessionEntity
+import com.example.data.model.TimetableImportEntry
+import java.text.Normalizer
+import java.util.Locale
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.first
 import org.json.JSONArray
 import org.json.JSONObject
 
-class JimRepository(private val dao: JimDao) {
+class JimRepository(
+    private val dao: JimDao,
+    private val database: JimDatabase
+) {
 
     val coursesFlow: Flow<List<CourseEntity>> = dao.getAllCoursesFlow()
     val assessmentsFlow: Flow<List<AssessmentEntity>> = dao.getAllAssessmentsFlow()
@@ -82,6 +90,61 @@ class JimRepository(private val dao: JimDao) {
     suspend fun updateSession(session: TimetableSessionEntity) = dao.updateSession(session)
     suspend fun deleteSession(session: TimetableSessionEntity) = dao.deleteSession(session)
     suspend fun clearSessions() = dao.clearAllSessions()
+
+    suspend fun replaceSchedule(entries: List<TimetableImportEntry>) {
+        database.withTransaction {
+            val courses = dao.getAllCoursesFlow().first().toMutableList()
+            val importedCourses = mutableMapOf<String, CourseEntity>()
+            val codeSuffix = System.currentTimeMillis()
+
+            val sessions = entries.mapIndexed { index, entry ->
+                val courseKey = normalizeCourseName(entry.courseName)
+                require(courseKey.isNotEmpty()) { "Imported course name cannot be blank" }
+
+                val course = importedCourses.getOrPut(courseKey) {
+                    findMatchingCourse(courses, courseKey) ?: CourseEntity(
+                        name = entry.courseName.trim(),
+                        code = "IMP-$codeSuffix-$index"
+                    ).let { newCourse ->
+                        val savedCourse = newCourse.copy(id = dao.insertCourse(newCourse))
+                        courses += savedCourse
+                        savedCourse
+                    }
+                }
+
+                TimetableSessionEntity(
+                    courseId = course.id,
+                    dayOfWeek = entry.dayOfWeek,
+                    startTime = entry.startTime,
+                    endTime = entry.endTime,
+                    classroom = entry.classroom,
+                    sessionType = entry.sessionType
+                )
+            }
+
+            dao.clearAllSessions()
+            dao.insertSessions(sessions)
+        }
+    }
+
+    private fun findMatchingCourse(courses: List<CourseEntity>, courseKey: String): CourseEntity? {
+        val normalizedNames = courses.map { it to normalizeCourseName(it.name) }
+        normalizedNames.firstOrNull { it.second == courseKey }?.let { return it.first }
+
+        val partialMatches = normalizedNames.filter { (_, name) ->
+            name.length >= 5 && courseKey.length >= 5 &&
+                (name.contains(courseKey) || courseKey.contains(name))
+        }
+        val longestMatchLength = partialMatches.maxOfOrNull { it.second.length } ?: return null
+        return partialMatches.singleOrNull { it.second.length == longestMatchLength }?.first
+    }
+
+    private fun normalizeCourseName(name: String): String =
+        Normalizer.normalize(name, Normalizer.Form.NFD)
+            .replace(Regex("\\p{M}+"), "")
+            .replace(Regex("[أإآ]"), "ا")
+            .lowercase(Locale.ROOT)
+            .replace(Regex("[^\\p{L}\\p{N}]"), "")
 
     // Notes CRUD
     suspend fun addNote(note: CourseNoteEntity): Long = dao.insertNote(note)

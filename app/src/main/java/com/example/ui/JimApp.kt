@@ -111,7 +111,7 @@ fun JimApp(
                         is SubScreen.Onboarding -> {
                             WelcomeScreen(
                                 viewModel = viewModel,
-                                onStart = { viewModel.navigateBack() }
+                                onStart = { viewModel.finishOnboarding() }
                             )
                         }
                         SubScreen.None -> {

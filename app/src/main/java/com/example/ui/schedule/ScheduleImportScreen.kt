@@ -40,7 +40,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
-import com.example.data.model.TimetableSessionEntity
+import com.example.data.model.TimetableImportEntry
 import com.example.ui.JimViewModel
 import com.example.ui.components.JimTopBar
 
@@ -52,7 +52,6 @@ fun ScheduleImportScreen(
 ) {
     BackHandler { onBack() }
 
-    val courses by viewModel.courses.collectAsState()
     var rawText by remember {
         mutableStateOf(
             """
@@ -69,13 +68,11 @@ fun ScheduleImportScreen(
     var parseError by remember { mutableStateOf<String?>(null) }
     var importError by remember { mutableStateOf<String?>(null) }
     var isImporting by remember { mutableStateOf(false) }
-    var importSuccess by remember { mutableStateOf(false) }
 
     fun parseScheduleText(text: String) {
         extractedList.clear()
         parseError = null
         importError = null
-        importSuccess = false
         extractedList.addAll(ScheduleTextParser.parse(text))
 
         if (extractedList.isEmpty()) {
@@ -112,7 +109,7 @@ fun ScheduleImportScreen(
                             fontWeight = FontWeight.Bold
                         )
                         Text(
-                            text = "الصق نص جدولك الجامعي من ملف أو رسالة، وسيقوم النظام باستخراج الأيام والأوقات والقاعات لمراجعتها وتعديلها قبل الاعتماد.",
+                            text = "الصق جدولك هنا لمراجعة المواد والأيام والأوقات والقاعات. عند التأكيد سيُستبدل الجدول الأسبوعي الحالي بهذا الجدول.",
                             style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant
                         )
@@ -203,7 +200,9 @@ fun ScheduleImportScreen(
 
                             OutlinedTextField(
                                 value = draft.courseName,
-                                onValueChange = { draft.courseName = it },
+                                onValueChange = {
+                                    extractedList[index] = draft.copy(courseName = it)
+                                },
                                 label = { Text("اسم المادة") },
                                 modifier = Modifier.fillMaxWidth()
                             )
@@ -211,19 +210,25 @@ fun ScheduleImportScreen(
                             Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                                 OutlinedTextField(
                                     value = draft.startTime,
-                                    onValueChange = { draft.startTime = it },
+                                    onValueChange = {
+                                        extractedList[index] = draft.copy(startTime = it)
+                                    },
                                     label = { Text("البداية") },
                                     modifier = Modifier.weight(1f)
                                 )
                                 OutlinedTextField(
                                     value = draft.endTime,
-                                    onValueChange = { draft.endTime = it },
+                                    onValueChange = {
+                                        extractedList[index] = draft.copy(endTime = it)
+                                    },
                                     label = { Text("النهاية") },
                                     modifier = Modifier.weight(1f)
                                 )
                                 OutlinedTextField(
                                     value = draft.classroom,
-                                    onValueChange = { draft.classroom = it },
+                                    onValueChange = {
+                                        extractedList[index] = draft.copy(classroom = it)
+                                    },
                                     label = { Text("القاعة") },
                                     modifier = Modifier.weight(1f)
                                 )
@@ -236,36 +241,23 @@ fun ScheduleImportScreen(
                     Button(
                         onClick = {
                             importError = null
-                            if (courses.isEmpty()) {
-                                importError = "أضف مادة دراسية واحدة على الأقل قبل حفظ الجدول."
+                            if (extractedList.isEmpty()) {
+                                importError = "استخرج حصص الجدول أولاً."
                                 return@Button
                             }
-                            val invalidTime = extractedList.firstOrNull {
-                                !ScheduleTextParser.hasValidTimeRange(it.startTime, it.endTime)
+                            val invalidEntry = extractedList.firstOrNull {
+                                it.courseName.isBlank() ||
+                                    it.dayOfWeek !in 1..5 ||
+                                    !ScheduleTextParser.hasValidTimeRange(it.startTime, it.endTime)
                             }
-                            if (invalidTime != null) {
-                                importError = "راجع وقت البداية والنهاية للمادة ${invalidTime.courseName}."
-                                return@Button
-                            }
-
-                            val unmatchedDraft = extractedList.firstOrNull { draft ->
-                                courses.none {
-                                    it.name.contains(draft.courseName, ignoreCase = true) ||
-                                        draft.courseName.contains(it.name, ignoreCase = true)
-                                }
-                            }
-                            if (unmatchedDraft != null) {
-                                importError = "لم أجد مادة باسم ${unmatchedDraft.courseName}. أضف المادة أو صحح اسمها قبل الحفظ."
+                            if (invalidEntry != null) {
+                                importError = "راجع اسم المادة واليوم ووقتي البداية والنهاية للمادة ${invalidEntry.courseName}."
                                 return@Button
                             }
 
-                            val newSessions = extractedList.map { draft ->
-                                val matchedCourse = courses.first {
-                                    it.name.contains(draft.courseName, ignoreCase = true) ||
-                                        draft.courseName.contains(it.name, ignoreCase = true)
-                                }
-                                TimetableSessionEntity(
-                                    courseId = matchedCourse.id,
+                            val entries = extractedList.map { draft ->
+                                TimetableImportEntry(
+                                    courseName = draft.courseName.trim(),
                                     dayOfWeek = draft.dayOfWeek,
                                     startTime = draft.startTime,
                                     endTime = draft.endTime,
@@ -275,12 +267,12 @@ fun ScheduleImportScreen(
                             }
 
                             isImporting = true
-                            viewModel.importParsedSessions(newSessions) { result ->
+                            viewModel.replaceSchedule(entries) { result ->
                                 isImporting = false
                                 result.fold(
-                                    onSuccess = { importSuccess = true },
+                                    onSuccess = onBack,
                                     onFailure = {
-                                        importError = "تعذر حفظ الجدول. لم يتم تغيير بياناتك؛ حاول مرة أخرى."
+                                        importError = "تعذر استبدال الجدول. بقي الجدول السابق كما هو؛ حاول مرة أخرى."
                                     }
                                 )
                             }
@@ -292,28 +284,7 @@ fun ScheduleImportScreen(
                     ) {
                         Icon(imageVector = Icons.Default.Upload, contentDescription = null)
                         Spacer(modifier = Modifier.width(8.dp))
-                        Text(if (isImporting) "جارٍ حفظ الجدول..." else "تأكيد الاستيراد إلى الجدول الأسبوعي")
-                    }
-                }
-            }
-
-            if (importSuccess) {
-                item {
-                    Card(
-                        modifier = Modifier.fillMaxWidth(),
-                        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.primaryContainer)
-                    ) {
-                        Column(modifier = Modifier.padding(16.dp)) {
-                            Text(
-                                text = "تم استيراد الجدول بنجاح! يمكنك الآن الرجوع للجدول واستعراض الحصص.",
-                                color = MaterialTheme.colorScheme.onPrimaryContainer,
-                                fontWeight = FontWeight.Bold
-                            )
-                            Spacer(modifier = Modifier.height(8.dp))
-                            Button(onClick = onBack) {
-                                Text("العودة إلى الجدول")
-                            }
-                        }
+                        Text(if (isImporting) "جارٍ استبدال الجدول..." else "استبدال الجدول بالبيانات المستوردة")
                     }
                 }
             }

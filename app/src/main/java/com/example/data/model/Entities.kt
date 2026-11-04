@@ -87,6 +87,15 @@ data class TimetableSessionEntity(
     val sessionType: String = "محاضرة" // محاضرة, معمل
 )
 
+data class TimetableImportEntry(
+    val courseName: String,
+    val dayOfWeek: Int,
+    val startTime: String,
+    val endTime: String,
+    val classroom: String = "",
+    val sessionType: String = "محاضرة"
+)
+
 @Entity(tableName = "course_notes")
 data class CourseNoteEntity(
     @PrimaryKey(autoGenerate = true)

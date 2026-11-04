@@ -3,12 +3,12 @@ package com.example.ui.schedule
 import java.util.Locale
 
 data class ParsedSessionDraft(
-    var dayOfWeek: Int = 1,
-    var courseName: String = "",
-    var startTime: String = "08:00",
-    var endTime: String = "09:00",
-    var classroom: String = "",
-    var sessionType: String = "محاضرة"
+    val dayOfWeek: Int = 1,
+    val courseName: String = "",
+    val startTime: String = "08:00",
+    val endTime: String = "09:00",
+    val classroom: String = "",
+    val sessionType: String = "محاضرة"
 )
 
 object ScheduleTextParser {

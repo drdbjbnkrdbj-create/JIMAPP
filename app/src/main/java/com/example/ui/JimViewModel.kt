@@ -18,6 +18,7 @@ import com.example.data.model.ExamEntity
 import com.example.data.model.LectureEntity
 import com.example.data.model.LibraryDocumentEntity
 import com.example.data.model.StudentProfileEntity
+import com.example.data.model.TimetableImportEntry
 import com.example.data.model.TimetableSessionEntity
 import com.example.notifications.JimNotificationHelper
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -77,8 +78,14 @@ class JimViewModel(application: Application) : AndroidViewModel(application) {
     val notesFilter: StateFlow<String> = _notesFilter.asStateFlow()
 
     init {
-        val dao = JimDatabase.getDatabase(application).jimDao()
-        repository = JimRepository(dao)
+        val database = JimDatabase.getDatabase(application)
+        val dao = database.jimDao()
+        repository = JimRepository(dao, database)
+        if (!application.getSharedPreferences("jim_preferences", Context.MODE_PRIVATE)
+                .getBoolean("has_seen_welcome", false)
+        ) {
+            _subScreen.value = SubScreen.Onboarding
+        }
 
         JimNotificationHelper.createNotificationChannel(application)
 
@@ -144,6 +151,7 @@ class JimViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     fun openProfile() {
+        markWelcomeAsSeenIfNeeded()
         _subScreen.value = SubScreen.StudentProfile
     }
 
@@ -157,10 +165,30 @@ class JimViewModel(application: Application) : AndroidViewModel(application) {
 
     fun navigateBack(): Boolean {
         if (_subScreen.value !is SubScreen.None) {
+            markWelcomeAsSeenIfNeeded()
             _subScreen.value = SubScreen.None
             return true
         }
         return false
+    }
+
+    fun finishOnboarding() {
+        getApplication<Application>()
+            .getSharedPreferences("jim_preferences", Context.MODE_PRIVATE)
+            .edit()
+            .putBoolean("has_seen_welcome", true)
+            .apply()
+        _subScreen.value = SubScreen.None
+    }
+
+    private fun markWelcomeAsSeenIfNeeded() {
+        if (_subScreen.value is SubScreen.Onboarding) {
+            getApplication<Application>()
+                .getSharedPreferences("jim_preferences", Context.MODE_PRIVATE)
+                .edit()
+                .putBoolean("has_seen_welcome", true)
+                .apply()
+        }
     }
 
     fun selectScheduleDay(day: Int) {
@@ -385,16 +413,17 @@ class JimViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
-    fun importParsedSessions(
-        sessions: List<TimetableSessionEntity>,
+    fun replaceSchedule(
+        entries: List<TimetableImportEntry>,
         onResult: (Result<Unit>) -> Unit
     ) {
         viewModelScope.launch {
             try {
-                repository.addSessions(sessions)
+                repository.replaceSchedule(entries)
+                entries.minOfOrNull { it.dayOfWeek }?.let { _selectedDayOfWeek.value = it }
                 onResult(Result.success(Unit))
             } catch (error: SQLiteException) {
-                Log.e("JimViewModel", "Failed to import timetable sessions", error)
+                Log.e("JimViewModel", "Failed to replace timetable", error)
                 onResult(Result.failure(error))
             }
         }
