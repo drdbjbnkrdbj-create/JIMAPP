@@ -34,6 +34,149 @@ class JimRepository(
     val documentsFlow: Flow<List<LibraryDocumentEntity>> = dao.getAllDocumentsFlow()
     val profileFlow: Flow<StudentProfileEntity?> = dao.getProfileFlow()
 
+    suspend fun removeBundledExamples() {
+        database.withTransaction {
+            val demoCourses = listOf(
+                CourseEntity(
+                    name = "هندسة البرمجيات",
+                    code = "CS301",
+                    instructor = "د. وليد الشمري",
+                    classroom = "H2",
+                    iconKey = "computer",
+                    description = "مفاهيم دورة حياة تطوير البرمجيات، النمذجة بـ UML، والمنهجيات الرشيقة Agile."
+                ),
+                CourseEntity(
+                    name = "الرياضيات المتقطعة",
+                    code = "MAT201",
+                    instructor = "د. خالد السعدي",
+                    classroom = "H1",
+                    colorHex = "#10B981",
+                    iconKey = "math",
+                    description = "المنطق الرياضي، نظرية المجموعات، الرسوم البيانية، ونظريات التوافيق والتباديل."
+                ),
+                CourseEntity(
+                    name = "قواعد البيانات",
+                    code = "DBS302",
+                    instructor = "د. طارق المنصوري",
+                    classroom = "Lab6",
+                    colorHex = "#F59E0B",
+                    iconKey = "database",
+                    description = "تصميم قواعد البيانات العلاقية، لغة الاستعلام SQL، وتطبيع الجداول Normalization."
+                ),
+                CourseEntity(
+                    name = "الذكاء الاصطناعي",
+                    code = "AI301",
+                    instructor = "د. سمير باوزير",
+                    classroom = "H3",
+                    colorHex = "#8B5CF6",
+                    iconKey = "ai",
+                    description = "مقدمة في خوارزميات البحث، التعلم الآلي، والشبكات العصبية الاصطناعية."
+                ),
+                CourseEntity(
+                    name = "لغة إنجليزية",
+                    code = "ENG101",
+                    instructor = "أ. مريم العيدروس",
+                    classroom = "C1",
+                    creditHours = 2,
+                    colorHex = "#EF4444",
+                    iconKey = "language",
+                    description = "مهارات القراءة والكتابة التقنية وإعداد العروض التقديمية الأكاديمية."
+                )
+            )
+            dao.getAllCourses()
+                .filter { course ->
+                    demoCourses.any { sample ->
+                        course.code == sample.code &&
+                            course.name == sample.name &&
+                            course.instructor == sample.instructor &&
+                            course.classroom == sample.classroom &&
+                            course.creditHours == sample.creditHours &&
+                            course.colorHex == sample.colorHex &&
+                            course.iconKey == sample.iconKey &&
+                            course.description == sample.description
+                    }
+                }
+                .forEach { course -> dao.deleteCourseAndRelatedData(course.id) }
+
+            val demoNotes = listOf(
+                CourseNoteEntity(
+                    title = "أفكار للمشروع",
+                    content = "تطوير تطبيق لإدارة المهام الجامعية يتميز بالعمل بدون إنترنت وواجهة عصرية بتصميم Jim الأكاديمي.",
+                    category = "مهم",
+                    isPinned = true
+                ),
+                CourseNoteEntity(
+                    title = "قائمة المراجع المهمة",
+                    content = "كتاب Software Engineering by Ian Sommerville الطبعة العاشرة.\nمرجع Artificial Intelligence: A Modern Approach.",
+                    category = "عام",
+                    isPinned = true
+                ),
+                CourseNoteEntity(
+                    title = "ملاحظات للامتحان",
+                    content = "مراجعة الفصل 4 و 5 في قواعد البيانات. التركيز على استعلامات التجميع Group By و Having.",
+                    category = "مراجعة",
+                    isPinned = true
+                ),
+                CourseNoteEntity(
+                    title = "أهدافي الدراسية",
+                    content = "تحقيق معدل 3.75 أو أعلى هذا الفصل والحفاظ على التفوق الأكاديمي.",
+                    category = "عام",
+                    isPinned = true
+                ),
+                CourseNoteEntity(
+                    title = "ملاحظات عامة",
+                    content = "التسجيل في ورشة الحوسبة السحابية يوم الأحد القادم.",
+                    category = "عام",
+                    isPinned = false
+                )
+            )
+            dao.getAllNotes()
+                .filter { note ->
+                    note.courseId == null && demoNotes.any { sample ->
+                        note.title == sample.title &&
+                            note.content == sample.content &&
+                            note.category == sample.category &&
+                            note.isPinned == sample.isPinned
+                    }
+                }
+                .forEach(dao::deleteNote)
+
+            dao.getProfile()?.let { profile ->
+                if (
+                    profile.name == "أحمد محمد" &&
+                    profile.universityId == "20240123" &&
+                    profile.university == "جامعة سيئون" &&
+                    profile.college == "كلية الحاسوب" &&
+                    profile.major == "تقنية المعلومات" &&
+                    profile.academicLevel == "الثاني" &&
+                    profile.academicAdvisor == "د. محمد علي" &&
+                    profile.currentGpa == 3.42 &&
+                    profile.targetGpa == 3.75 &&
+                    profile.totalCredits == 132 &&
+                    profile.completedCredits == 45 &&
+                    profile.semesterCredits == 15
+                ) {
+                    dao.saveProfile(
+                        profile.copy(
+                            name = "",
+                            universityId = "",
+                            university = "",
+                            college = "",
+                            major = "",
+                            academicLevel = "",
+                            academicAdvisor = "",
+                            currentGpa = 0.0,
+                            targetGpa = 0.0,
+                            totalCredits = 0,
+                            completedCredits = 0,
+                            semesterCredits = 0
+                        )
+                    )
+                }
+            }
+        }
+    }
+
     fun getAssessmentsForCourse(courseId: Long): Flow<List<AssessmentEntity>> =
         dao.getAssessmentsForCourseFlow(courseId)
 

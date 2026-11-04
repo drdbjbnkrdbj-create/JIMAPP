@@ -146,6 +146,9 @@ interface JimDao {
     @Query("SELECT * FROM course_notes ORDER BY isPinned DESC, updatedAt DESC")
     fun getAllNotesFlow(): Flow<List<CourseNoteEntity>>
 
+    @Query("SELECT * FROM course_notes ORDER BY isPinned DESC, updatedAt DESC")
+    suspend fun getAllNotes(): List<CourseNoteEntity>
+
     @Query("SELECT * FROM course_notes WHERE courseId = :courseId ORDER BY isPinned DESC, updatedAt DESC")
     fun getNotesForCourseFlow(courseId: Long): Flow<List<CourseNoteEntity>>
 
@@ -234,7 +237,4 @@ interface JimDao {
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun saveProfile(profile: StudentProfileEntity)
 
-    // Count checks for seed initialization
-    @Query("SELECT COUNT(*) FROM courses")
-    suspend fun getCourseCount(): Int
 }

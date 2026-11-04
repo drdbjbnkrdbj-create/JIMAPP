@@ -6,10 +6,8 @@ import android.database.sqlite.SQLiteException
 import android.util.Log
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
-import androidx.room.withTransaction
 import com.example.data.JimDatabase
 import com.example.data.JimRepository
-import com.example.data.SampleData
 import com.example.data.model.AssessmentEntity
 import com.example.data.model.AssignmentEntity
 import com.example.data.model.CourseEntity
@@ -91,10 +89,11 @@ class JimViewModel(application: Application) : AndroidViewModel(application) {
 
         JimNotificationHelper.createNotificationChannel(application)
 
-        // Seed initial data if empty
-        viewModelScope.launch {
-            database.withTransaction {
-                SampleData.populateIfEmpty(dao)
+        val preferences = application.getSharedPreferences("jim_preferences", Context.MODE_PRIVATE)
+        if (!preferences.getBoolean("bundled_examples_removed", false)) {
+            viewModelScope.launch {
+                repository.removeBundledExamples()
+                preferences.edit().putBoolean("bundled_examples_removed", true).apply()
             }
         }
     }
