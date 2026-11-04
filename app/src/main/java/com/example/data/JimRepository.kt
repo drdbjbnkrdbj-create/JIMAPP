@@ -54,7 +54,7 @@ class JimRepository(private val dao: JimDao) {
     // Course CRUD
     suspend fun addCourse(course: CourseEntity): Long = dao.insertCourse(course)
     suspend fun updateCourse(course: CourseEntity) = dao.updateCourse(course)
-    suspend fun deleteCourse(course: CourseEntity) = dao.deleteCourse(course)
+    suspend fun deleteCourse(course: CourseEntity) = dao.deleteCourseAndRelatedData(course.id)
 
     // Assessment CRUD
     suspend fun addAssessment(assessment: AssessmentEntity): Long = dao.insertAssessment(assessment)
@@ -91,7 +91,7 @@ class JimRepository(private val dao: JimDao) {
     // Library CRUD
     suspend fun addDocument(doc: LibraryDocumentEntity): Long = dao.insertDocument(doc)
     suspend fun updateDocument(doc: LibraryDocumentEntity) = dao.updateDocument(doc)
-    suspend fun deleteDocument(doc: LibraryDocumentEntity) = dao.deleteDocument(doc)
+    suspend fun deleteDocument(doc: LibraryDocumentEntity) = dao.deleteDocumentAndAnnotations(doc.id)
 
     // Annotation CRUD
     suspend fun addAnnotation(ann: DocumentAnnotationEntity): Long = dao.insertAnnotation(ann)

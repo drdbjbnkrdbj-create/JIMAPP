@@ -20,6 +20,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowForwardIos
 import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
@@ -49,6 +50,7 @@ import androidx.compose.ui.unit.dp
 import com.example.data.model.CourseEntity
 import com.example.ui.JimViewModel
 import com.example.ui.components.CourseIconBadge
+import com.example.ui.components.ConfirmDeleteDialog
 import com.example.ui.theme.JimPrimaryBlue
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -61,6 +63,7 @@ fun CoursesScreen(
     val courses by viewModel.courses.collectAsState()
     val searchQuery by viewModel.courseSearchQuery.collectAsState()
     var showAddDialog by remember { mutableStateOf(false) }
+    var courseToDelete by remember { mutableStateOf<CourseEntity?>(null) }
 
     val filteredCourses = courses.filter {
         it.name.contains(searchQuery, ignoreCase = true) ||
@@ -145,7 +148,8 @@ fun CoursesScreen(
             items(filteredCourses) { course ->
                 CourseItemCard(
                     course = course,
-                    onClick = { onOpenCourse(course.id) }
+                    onClick = { onOpenCourse(course.id) },
+                    onDelete = { courseToDelete = course }
                 )
             }
 
@@ -164,12 +168,25 @@ fun CoursesScreen(
             }
         )
     }
+
+    courseToDelete?.let { course ->
+        ConfirmDeleteDialog(
+            title = "حذف المادة",
+            message = "سيتم حذف مادة ${course.name} وكل محاضراتها ودرجاتها وملفاتها وجدولها. لا يمكن التراجع عن ذلك.",
+            onDismiss = { courseToDelete = null },
+            onConfirm = {
+                viewModel.deleteCourse(course)
+                courseToDelete = null
+            }
+        )
+    }
 }
 
 @Composable
 fun CourseItemCard(
     course: CourseEntity,
-    onClick: () -> Unit
+    onClick: () -> Unit,
+    onDelete: () -> Unit
 ) {
     Card(
         modifier = Modifier
@@ -207,6 +224,13 @@ fun CourseItemCard(
                 )
             }
 
+            IconButton(onClick = onDelete, modifier = Modifier.size(36.dp)) {
+                Icon(
+                    imageVector = Icons.Default.Delete,
+                    contentDescription = "حذف المادة",
+                    tint = MaterialTheme.colorScheme.error
+                )
+            }
             Icon(
                 imageVector = Icons.AutoMirrored.Filled.ArrowForwardIos,
                 contentDescription = null,

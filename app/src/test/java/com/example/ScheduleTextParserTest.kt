@@ -52,4 +52,29 @@ class ScheduleTextParserTest {
 
         assertTrue(sessions.isEmpty())
     }
+
+    @Test
+    fun rejectsInvalidOrReversedSessionTimes() {
+        assertTrue(ScheduleTextParser.hasValidTimeRange("08:00", "09:15"))
+        assertTrue(!ScheduleTextParser.hasValidTimeRange("09:15", "08:00"))
+        assertTrue(!ScheduleTextParser.hasValidTimeRange("25:00", "26:00"))
+    }
+
+    @Test
+    fun parsesTheSampleScheduleWithoutInvalidTimeRanges() {
+        val sessions = ScheduleTextParser.parse(
+            """
+                الأحد: هندسة البرمجيات من 08:00 إلى 09:00 قاعة H2
+                الإثنين: الرياضيات المتقطعة 09:00 - 10:30 H1
+                الثلاثاء: معمل قواعد البيانات من 10:00 إلى 12:00 Lab6
+                الأربعاء: الذكاء الاصطناعي 09:00 - 11:00 H3
+                الخميس: لغة إنجليزية 11:00 - 13:00 C1
+            """.trimIndent()
+        )
+
+        assertEquals(5, sessions.size)
+        assertEquals("قواعد البيانات", sessions[2].courseName)
+        assertEquals("Lab6", sessions[2].classroom)
+        assertTrue(sessions.all { ScheduleTextParser.hasValidTimeRange(it.startTime, it.endTime) })
+    }
 }

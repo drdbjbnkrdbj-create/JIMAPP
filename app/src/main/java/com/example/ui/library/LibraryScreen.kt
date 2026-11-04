@@ -33,6 +33,7 @@ import androidx.compose.material.icons.filled.Bookmark
 import androidx.compose.material.icons.filled.BookmarkBorder
 import androidx.compose.material.icons.filled.CameraAlt
 import androidx.compose.material.icons.filled.Description
+import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Image
 import androidx.compose.material.icons.filled.PictureAsPdf
 import androidx.compose.material.icons.filled.Search
@@ -69,6 +70,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.example.data.model.LibraryDocumentEntity
 import com.example.ui.JimViewModel
+import com.example.ui.components.ConfirmDeleteDialog
 import com.example.ui.theme.CourseAmber
 import com.example.ui.theme.CourseBlue
 import com.example.ui.theme.CourseCyan
@@ -88,6 +90,7 @@ fun LibraryScreen(
     val activeFilter by viewModel.libraryFilter.collectAsState()
 
     var showAddFileDialog by remember { mutableStateOf(false) }
+    var documentToDelete by remember { mutableStateOf<LibraryDocumentEntity?>(null) }
     val filePicker = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.OpenDocument()
     ) { uri ->
@@ -343,7 +346,8 @@ fun LibraryScreen(
                                 val shareIntent = Intent.createChooser(sendIntent, "مشاركة المستند")
                                 context.startActivity(shareIntent)
                             },
-                            onBookmarkToggle = { viewModel.toggleDocBookmark(doc) }
+                            onBookmarkToggle = { viewModel.toggleDocBookmark(doc) },
+                            onDelete = { documentToDelete = doc }
                         )
                     }
 
@@ -364,6 +368,18 @@ fun LibraryScreen(
             }
         )
     }
+
+    documentToDelete?.let { document ->
+        ConfirmDeleteDialog(
+            title = "حذف الملف",
+            message = "سيتم حذف «${document.title}» وملاحظاته من المكتبة.",
+            onDismiss = { documentToDelete = null },
+            onConfirm = {
+                viewModel.deleteDocument(document)
+                documentToDelete = null
+            }
+        )
+    }
 }
 
 private fun formatFileSize(bytes: Long?): String {
@@ -379,7 +395,8 @@ fun LibraryDocumentCard(
     doc: LibraryDocumentEntity,
     onClick: () -> Unit,
     onShare: () -> Unit,
-    onBookmarkToggle: () -> Unit
+    onBookmarkToggle: () -> Unit,
+    onDelete: () -> Unit
 ) {
     val (badgeBg, icon) = when (doc.fileType.uppercase()) {
         "PDF" -> CourseRed to Icons.Default.PictureAsPdf
@@ -451,6 +468,15 @@ fun LibraryDocumentCard(
                         imageVector = if (doc.isBookmarked) Icons.Default.Bookmark else Icons.Default.BookmarkBorder,
                         contentDescription = "إشارة مرجعية",
                         tint = if (doc.isBookmarked) CourseAmber else MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier.size(18.dp)
+                    )
+                }
+
+                IconButton(onClick = onDelete, modifier = Modifier.size(32.dp)) {
+                    Icon(
+                        imageVector = Icons.Default.Delete,
+                        contentDescription = "حذف الملف",
+                        tint = MaterialTheme.colorScheme.error,
                         modifier = Modifier.size(18.dp)
                     )
                 }

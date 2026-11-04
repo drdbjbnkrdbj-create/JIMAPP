@@ -22,6 +22,7 @@ import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Assignment
 import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.DateRange
+import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.EditNote
 import androidx.compose.material.icons.filled.Folder
 import androidx.compose.material.icons.filled.Notifications
@@ -37,6 +38,9 @@ import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -48,10 +52,12 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.example.data.model.AssignmentEntity
 import com.example.data.model.CourseEntity
+import com.example.data.model.ExamEntity
 import com.example.data.model.TimetableSessionEntity
 import com.example.ui.JimViewModel
 import com.example.ui.MainTab
 import com.example.ui.components.CourseIconBadge
+import com.example.ui.components.ConfirmDeleteDialog
 import com.example.ui.components.GpaProgressCard
 import com.example.ui.components.PriorityBadge
 import com.example.ui.theme.JimPrimaryBlue
@@ -69,6 +75,7 @@ fun HomeScreen(
     val sessions by viewModel.sessions.collectAsState()
     val assignments by viewModel.assignments.collectAsState()
     val exams by viewModel.exams.collectAsState()
+    var examToDelete by remember { mutableStateOf<ExamEntity?>(null) }
 
     // Filter today's lectures (Sunday = 1 in sample data)
     val todaySessions = sessions.filter { it.dayOfWeek == 1 }
@@ -320,6 +327,13 @@ fun HomeScreen(
                                 color = MaterialTheme.colorScheme.onSurfaceVariant
                             )
                         }
+                        IconButton(onClick = { examToDelete = exam }) {
+                            Icon(
+                                imageVector = Icons.Default.Delete,
+                                contentDescription = "حذف الاختبار",
+                                tint = MaterialTheme.colorScheme.error
+                            )
+                        }
                     }
                 }
             }
@@ -328,6 +342,18 @@ fun HomeScreen(
         item {
             Spacer(modifier = Modifier.height(24.dp))
         }
+    }
+
+    examToDelete?.let { exam ->
+        ConfirmDeleteDialog(
+            title = "حذف الاختبار",
+            message = "سيتم حذف اختبار «${exam.title}» نهائيًا.",
+            onDismiss = { examToDelete = null },
+            onConfirm = {
+                viewModel.deleteExam(exam)
+                examToDelete = null
+            }
+        )
     }
 }
 

@@ -67,6 +67,7 @@ import com.example.data.model.CourseEntity
 import com.example.data.model.CourseNoteEntity
 import com.example.data.model.LectureEntity
 import com.example.ui.JimViewModel
+import com.example.ui.components.ConfirmDeleteDialog
 import com.example.ui.components.CourseIconBadge
 import com.example.ui.components.PriorityBadge
 import com.example.ui.theme.JimCyanAccent
@@ -295,7 +296,8 @@ fun CourseWorkspaceScreen(
                 )
                 WorkspaceTab.FILES -> CourseFilesTabContent(
                     documents = courseDocs,
-                    onOpenFile = onOpenFile
+                    onOpenFile = onOpenFile,
+                    onDelete = { viewModel.deleteDocument(it) }
                 )
                 WorkspaceTab.INFO -> CourseInfoTabContent(course = course)
             }
@@ -342,6 +344,7 @@ fun CourseWorkspaceScreen(
             }
         )
     }
+
 }
 
 @Composable
@@ -445,6 +448,7 @@ fun LecturesTabContent(
     onToggleReviewed: (LectureEntity) -> Unit,
     onDelete: (LectureEntity) -> Unit
 ) {
+    var lecturePendingDeletion by remember { mutableStateOf<LectureEntity?>(null) }
     LazyColumn(
         modifier = Modifier
             .fillMaxSize()
@@ -502,12 +506,21 @@ fun LecturesTabContent(
                                 fontWeight = FontWeight.Bold,
                                 modifier = Modifier.weight(1f)
                             )
-                            IconButton(onClick = { onToggleReviewed(lecture) }) {
-                                Icon(
-                                    imageVector = if (lecture.isReviewed) Icons.Default.CheckCircle else Icons.Default.RadioButtonUnchecked,
-                                    contentDescription = "تمت المراجعة",
-                                    tint = if (lecture.isReviewed) Color(0xFF10B981) else MaterialTheme.colorScheme.onSurfaceVariant
-                                )
+                            Row {
+                                IconButton(onClick = { onToggleReviewed(lecture) }) {
+                                    Icon(
+                                        imageVector = if (lecture.isReviewed) Icons.Default.CheckCircle else Icons.Default.RadioButtonUnchecked,
+                                        contentDescription = "تمت المراجعة",
+                                        tint = if (lecture.isReviewed) Color(0xFF10B981) else MaterialTheme.colorScheme.onSurfaceVariant
+                                    )
+                                }
+                                IconButton(onClick = { lecturePendingDeletion = lecture }) {
+                                    Icon(
+                                        imageVector = Icons.Default.Delete,
+                                        contentDescription = "حذف المحاضرة",
+                                        tint = MaterialTheme.colorScheme.error
+                                    )
+                                }
                             }
                         }
 
@@ -529,9 +542,22 @@ fun LecturesTabContent(
                             )
                         }
                     }
+
                 }
             }
         }
+    }
+
+    lecturePendingDeletion?.let { lecture ->
+        ConfirmDeleteDialog(
+            title = "حذف المحاضرة",
+            message = "سيتم حذف المحاضرة «${lecture.title}» نهائيًا.",
+            onDismiss = { lecturePendingDeletion = null },
+            onConfirm = {
+                onDelete(lecture)
+                lecturePendingDeletion = null
+            }
+        )
     }
 }
 
@@ -624,6 +650,7 @@ fun AssignmentsTabContent(
     onToggle: (AssignmentEntity) -> Unit,
     onDelete: (AssignmentEntity) -> Unit
 ) {
+    var assignmentPendingDeletion by remember { mutableStateOf<AssignmentEntity?>(null) }
     LazyColumn(
         modifier = Modifier
             .fillMaxSize()
@@ -691,18 +718,41 @@ fun AssignmentsTabContent(
                             )
                         }
                         PriorityBadge(priority = assignment.priority)
+                        IconButton(onClick = { assignmentPendingDeletion = assignment }) {
+                            Icon(
+                                imageVector = Icons.Default.Delete,
+                                contentDescription = "حذف المهمة",
+                                tint = MaterialTheme.colorScheme.error
+                            )
+                        }
                     }
                 }
             }
         }
+    }
+
+    assignmentPendingDeletion?.let { assignment ->
+        ConfirmDeleteDialog(
+            title = "حذف المهمة",
+            message = "سيتم حذف المهمة «${assignment.title}» نهائيًا.",
+            onDismiss = { assignmentPendingDeletion = null },
+            onConfirm = {
+                onDelete(assignment)
+                assignmentPendingDeletion = null
+            }
+        )
     }
 }
 
 @Composable
 fun CourseFilesTabContent(
     documents: List<com.example.data.model.LibraryDocumentEntity>,
-    onOpenFile: (Long) -> Unit
+    onOpenFile: (Long) -> Unit,
+    onDelete: (com.example.data.model.LibraryDocumentEntity) -> Unit
 ) {
+    var documentPendingDeletion by remember {
+        mutableStateOf<com.example.data.model.LibraryDocumentEntity?>(null)
+    }
     LazyColumn(
         modifier = Modifier
             .fillMaxSize()
@@ -760,10 +810,29 @@ fun CourseFilesTabContent(
                                 color = MaterialTheme.colorScheme.onSurfaceVariant
                             )
                         }
+                        IconButton(onClick = { documentPendingDeletion = doc }) {
+                            Icon(
+                                imageVector = Icons.Default.Delete,
+                                contentDescription = "حذف الملف",
+                                tint = MaterialTheme.colorScheme.error
+                            )
+                        }
                     }
                 }
             }
         }
+    }
+
+    documentPendingDeletion?.let { document ->
+        ConfirmDeleteDialog(
+            title = "حذف الملف",
+            message = "سيتم حذف «${document.title}» من مكتبة المادة.",
+            onDismiss = { documentPendingDeletion = null },
+            onConfirm = {
+                onDelete(document)
+                documentPendingDeletion = null
+            }
+        )
     }
 }
 

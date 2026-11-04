@@ -236,9 +236,11 @@ fun ScheduleScreen(
             courses = courses,
             initialDay = selectedDay,
             onDismiss = { showAddSessionDialog = false },
-            onConfirm = { courseId, day, start, end, room, type ->
-                viewModel.addSession(courseId, day, start, end, room, type)
-                showAddSessionDialog = false
+            onConfirm = { courseId, day, start, end, room, type, onResult ->
+                viewModel.addSession(courseId, day, start, end, room, type) { result ->
+                    onResult(result)
+                    if (result.isSuccess) showAddSessionDialog = false
+                }
             }
         )
     }
@@ -328,7 +330,7 @@ fun AddSessionDialog(
     courses: List<CourseEntity>,
     initialDay: Int,
     onDismiss: () -> Unit,
-    onConfirm: (Long, Int, String, String, String, String) -> Unit
+    onConfirm: (Long, Int, String, String, String, String, (Result<Unit>) -> Unit) -> Unit
 ) {
     if (courses.isEmpty()) {
         AlertDialog(
@@ -346,6 +348,9 @@ fun AddSessionDialog(
     var endTime by remember { mutableStateOf("09:00") }
     var classroom by remember { mutableStateOf("") }
     var sessionType by remember { mutableStateOf("محاضرة") }
+    var saveError by remember { mutableStateOf<String?>(null) }
+    var isSaving by remember { mutableStateOf(false) }
+    val validTimeRange = com.example.ui.schedule.ScheduleTextParser.hasValidTimeRange(startTime, endTime)
 
     val days = listOf(1 to "الأحد", 2 to "الإثنين", 3 to "الثلاثاء", 4 to "الأربعاء", 5 to "الخميس")
 
@@ -415,11 +420,33 @@ fun AddSessionDialog(
                         Text(sessionType)
                     }
                 }
+                if (!validTimeRange) {
+                    Text(
+                        text = "تحقق من الوقت: يجب أن يكون بصيغة 08:00 وأن تكون النهاية بعد البداية.",
+                        color = MaterialTheme.colorScheme.error,
+                        style = MaterialTheme.typography.bodySmall
+                    )
+                }
+                saveError?.let { error ->
+                    Text(error, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall)
+                }
             }
         },
         confirmButton = {
-            Button(onClick = { onConfirm(selectedCourseId, selectedDay, startTime, endTime, classroom, sessionType) }) {
-                Text("حفظ الحصة")
+            Button(
+                enabled = validTimeRange && !isSaving,
+                onClick = {
+                    isSaving = true
+                    saveError = null
+                    onConfirm(selectedCourseId, selectedDay, startTime, endTime, classroom, sessionType) { result ->
+                        isSaving = false
+                        if (result.isFailure) {
+                            saveError = "تعذر حفظ الحصة. حاول مرة أخرى."
+                        }
+                    }
+                }
+            ) {
+                Text(if (isSaving) "جارٍ الحفظ..." else "حفظ الحصة")
             }
         },
         dismissButton = {

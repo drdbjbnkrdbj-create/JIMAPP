@@ -5,6 +5,7 @@ import androidx.room.Delete
 import androidx.room.Insert
 import androidx.room.OnConflictStrategy
 import androidx.room.Query
+import androidx.room.Transaction
 import androidx.room.Update
 import com.example.data.model.AssessmentEntity
 import com.example.data.model.AssignmentEntity
@@ -36,6 +37,9 @@ interface JimDao {
 
     @Delete
     suspend fun deleteCourse(course: CourseEntity)
+
+    @Query("DELETE FROM assessments WHERE courseId = :courseId")
+    suspend fun deleteAssessmentsForCourse(courseId: Long)
 
     // Assessments
     @Query("SELECT * FROM assessments WHERE courseId = :courseId ORDER BY id ASC")
@@ -69,6 +73,9 @@ interface JimDao {
     @Delete
     suspend fun deleteLecture(lecture: LectureEntity)
 
+    @Query("DELETE FROM lectures WHERE courseId = :courseId")
+    suspend fun deleteLecturesForCourse(courseId: Long)
+
     // Assignments
     @Query("SELECT * FROM assignments ORDER BY CASE priority WHEN 'عاجل' THEN 1 WHEN 'متوسط' THEN 2 ELSE 3 END, dueDate ASC")
     fun getAllAssignmentsFlow(): Flow<List<AssignmentEntity>>
@@ -85,6 +92,9 @@ interface JimDao {
     @Delete
     suspend fun deleteAssignment(assignment: AssignmentEntity)
 
+    @Query("DELETE FROM assignments WHERE courseId = :courseId")
+    suspend fun deleteAssignmentsForCourse(courseId: Long)
+
     // Exams
     @Query("SELECT * FROM exams ORDER BY examDate ASC, examTime ASC")
     fun getAllExamsFlow(): Flow<List<ExamEntity>>
@@ -100,6 +110,9 @@ interface JimDao {
 
     @Delete
     suspend fun deleteExam(exam: ExamEntity)
+
+    @Query("DELETE FROM exams WHERE courseId = :courseId")
+    suspend fun deleteExamsForCourse(courseId: Long)
 
     // Timetable Sessions
     @Query("SELECT * FROM timetable_sessions ORDER BY dayOfWeek ASC, startTime ASC")
@@ -123,6 +136,9 @@ interface JimDao {
     @Query("DELETE FROM timetable_sessions")
     suspend fun clearAllSessions()
 
+    @Query("DELETE FROM timetable_sessions WHERE courseId = :courseId")
+    suspend fun deleteSessionsForCourse(courseId: Long)
+
     // Notes
     @Query("SELECT * FROM course_notes ORDER BY isPinned DESC, updatedAt DESC")
     fun getAllNotesFlow(): Flow<List<CourseNoteEntity>>
@@ -142,6 +158,9 @@ interface JimDao {
     @Delete
     suspend fun deleteNote(note: CourseNoteEntity)
 
+    @Query("DELETE FROM course_notes WHERE courseId = :courseId")
+    suspend fun deleteNotesForCourse(courseId: Long)
+
     // Library Documents
     @Query("SELECT * FROM library_documents ORDER BY id ASC")
     fun getAllDocumentsFlow(): Flow<List<LibraryDocumentEntity>>
@@ -160,6 +179,40 @@ interface JimDao {
 
     @Delete
     suspend fun deleteDocument(doc: LibraryDocumentEntity)
+
+    @Query("DELETE FROM document_annotations WHERE documentId = :documentId")
+    suspend fun deleteAnnotationsForDocument(documentId: Long)
+
+    @Query("DELETE FROM document_annotations WHERE documentId IN (SELECT id FROM library_documents WHERE courseId = :courseId)")
+    suspend fun deleteAnnotationsForCourseDocuments(courseId: Long)
+
+    @Query("DELETE FROM library_documents WHERE courseId = :courseId")
+    suspend fun deleteDocumentsForCourse(courseId: Long)
+
+    @Query("DELETE FROM library_documents WHERE id = :documentId")
+    suspend fun deleteDocumentById(documentId: Long)
+
+    @Query("DELETE FROM courses WHERE id = :courseId")
+    suspend fun deleteCourseById(courseId: Long)
+
+    @Transaction
+    suspend fun deleteCourseAndRelatedData(courseId: Long) {
+        deleteAnnotationsForCourseDocuments(courseId)
+        deleteDocumentsForCourse(courseId)
+        deleteAssessmentsForCourse(courseId)
+        deleteLecturesForCourse(courseId)
+        deleteAssignmentsForCourse(courseId)
+        deleteExamsForCourse(courseId)
+        deleteSessionsForCourse(courseId)
+        deleteNotesForCourse(courseId)
+        deleteCourseById(courseId)
+    }
+
+    @Transaction
+    suspend fun deleteDocumentAndAnnotations(documentId: Long) {
+        deleteAnnotationsForDocument(documentId)
+        deleteDocumentById(documentId)
+    }
 
     // Annotations
     @Query("SELECT * FROM document_annotations WHERE documentId = :docId ORDER BY page ASC, id ASC")

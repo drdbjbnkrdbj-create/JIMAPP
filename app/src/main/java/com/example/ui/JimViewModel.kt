@@ -1,7 +1,9 @@
 package com.example.ui
 
 import android.app.Application
+import android.database.sqlite.SQLiteException
 import android.content.Context
+import android.util.Log
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import com.example.data.JimDatabase
@@ -207,6 +209,10 @@ class JimViewModel(application: Application) : AndroidViewModel(application) {
 
     fun deleteCourse(course: CourseEntity) {
         viewModelScope.launch {
+            assignments.value.filter { it.courseId == course.id }
+                .forEach { JimNotificationHelper.cancelNotification(getApplication(), it.id.toInt()) }
+            exams.value.filter { it.courseId == course.id }
+                .forEach { JimNotificationHelper.cancelNotification(getApplication(), it.id.toInt() + 5000) }
             repository.deleteCourse(course)
         }
     }
@@ -344,18 +350,32 @@ class JimViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     // Timetable Session Operations
-    fun addSession(courseId: Long, dayOfWeek: Int, startTime: String, endTime: String, classroom: String, sessionType: String) {
+    fun addSession(
+        courseId: Long,
+        dayOfWeek: Int,
+        startTime: String,
+        endTime: String,
+        classroom: String,
+        sessionType: String,
+        onResult: (Result<Unit>) -> Unit
+    ) {
         viewModelScope.launch {
-            repository.addSession(
-                TimetableSessionEntity(
-                    courseId = courseId,
-                    dayOfWeek = dayOfWeek,
-                    startTime = startTime,
-                    endTime = endTime,
-                    classroom = classroom,
-                    sessionType = sessionType
+            try {
+                repository.addSession(
+                    TimetableSessionEntity(
+                        courseId = courseId,
+                        dayOfWeek = dayOfWeek,
+                        startTime = startTime,
+                        endTime = endTime,
+                        classroom = classroom,
+                        sessionType = sessionType
+                    )
                 )
-            )
+                onResult(Result.success(Unit))
+            } catch (error: SQLiteException) {
+                Log.e("JimViewModel", "Failed to add timetable session", error)
+                onResult(Result.failure(error))
+            }
         }
     }
 
@@ -365,9 +385,18 @@ class JimViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
-    fun importParsedSessions(sessions: List<TimetableSessionEntity>) {
+    fun importParsedSessions(
+        sessions: List<TimetableSessionEntity>,
+        onResult: (Result<Unit>) -> Unit
+    ) {
         viewModelScope.launch {
-            repository.addSessions(sessions)
+            try {
+                repository.addSessions(sessions)
+                onResult(Result.success(Unit))
+            } catch (error: SQLiteException) {
+                Log.e("JimViewModel", "Failed to import timetable sessions", error)
+                onResult(Result.failure(error))
+            }
         }
     }
 

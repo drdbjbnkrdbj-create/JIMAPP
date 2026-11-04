@@ -17,7 +17,7 @@ object ScheduleTextParser {
         RegexOption.IGNORE_CASE
     )
     private val roomPattern = Regex(
-        """(قاعة\s*[\p{L}\d-]+|معمل\s*[\p{L}\d-]+|Lab\d+|H\d+|C\d+)""",
+        """(قاعة\s*[\p{L}\d-]+|معمل\s*\d+|Lab\d+|H\d+|C\d+)""",
         RegexOption.IGNORE_CASE
     )
     private val dayNames = listOf(
@@ -71,6 +71,7 @@ object ScheduleTextParser {
             }
             courseName = courseName
                 .replace(Regex("""\b(?:من|إلى|الى|حتى|الساعة|AM|PM)\b""", RegexOption.IGNORE_CASE), " ")
+                .replace("معمل", " ")
                 .replace(Regex("""[:،,؛|\-–—]"""), " ")
                 .replace(Regex("""\s+"""), " ")
                 .trim()
@@ -90,6 +91,12 @@ object ScheduleTextParser {
         }
 
         return sessions.sortedWith(compareBy(ParsedSessionDraft::dayOfWeek, ParsedSessionDraft::startTime))
+    }
+
+    fun hasValidTimeRange(startTime: String, endTime: String): Boolean {
+        val start = parseClockTime(startTime) ?: return false
+        val end = parseClockTime(endTime) ?: return false
+        return end > start
     }
 
     private fun findDay(line: String): Int? =
@@ -121,6 +128,11 @@ object ScheduleTextParser {
         }
 
         return String.format(Locale.ROOT, "%02d:%02d", hour, minute)
+    }
+
+    private fun parseClockTime(value: String): Int? {
+        val match = Regex("""^([01]\d|2[0-3]):([0-5]\d)$""").matchEntire(value) ?: return null
+        return match.groupValues[1].toInt() * 60 + match.groupValues[2].toInt()
     }
 
     private fun normalizeDigits(value: String): String = buildString(value.length) {

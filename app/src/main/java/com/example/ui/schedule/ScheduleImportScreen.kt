@@ -60,18 +60,22 @@ fun ScheduleImportScreen(
 الإثنين: الرياضيات المتقطعة 09:00 - 10:30 H1
 الثلاثاء: معمل قواعد البيانات من 10:00 إلى 12:00 Lab6
 الأربعاء: الذكاء الاصطناعي 09:00 - 11:00 H3
-الخميس: لغة إنجليزية 11:00 - 01:00 C1
+الخميس: لغة إنجليزية 11:00 - 13:00 C1
             """.trimIndent()
         )
     }
 
     val extractedList = remember { mutableStateListOf<ParsedSessionDraft>() }
     var parseError by remember { mutableStateOf<String?>(null) }
+    var importError by remember { mutableStateOf<String?>(null) }
+    var isImporting by remember { mutableStateOf(false) }
     var importSuccess by remember { mutableStateOf(false) }
 
     fun parseScheduleText(text: String) {
         extractedList.clear()
         parseError = null
+        importError = null
+        importSuccess = false
         extractedList.addAll(ScheduleTextParser.parse(text))
 
         if (extractedList.isEmpty()) {
@@ -145,6 +149,12 @@ fun ScheduleImportScreen(
             parseError?.let { err ->
                 item {
                     Text(text = err, color = MaterialTheme.colorScheme.error)
+                }
+            }
+
+            importError?.let { error ->
+                item {
+                    Text(text = error, color = MaterialTheme.colorScheme.error)
                 }
             }
 
@@ -225,14 +235,37 @@ fun ScheduleImportScreen(
                 item {
                     Button(
                         onClick = {
-                            val newSessions = extractedList.map { draft ->
-                                val matchedCourse = courses.find {
-                                    it.name.contains(draft.courseName, ignoreCase = true) ||
-                                    draft.courseName.contains(it.name, ignoreCase = true)
-                                } ?: courses.firstOrNull()
+                            importError = null
+                            if (courses.isEmpty()) {
+                                importError = "أضف مادة دراسية واحدة على الأقل قبل حفظ الجدول."
+                                return@Button
+                            }
+                            val invalidTime = extractedList.firstOrNull {
+                                !ScheduleTextParser.hasValidTimeRange(it.startTime, it.endTime)
+                            }
+                            if (invalidTime != null) {
+                                importError = "راجع وقت البداية والنهاية للمادة ${invalidTime.courseName}."
+                                return@Button
+                            }
 
+                            val unmatchedDraft = extractedList.firstOrNull { draft ->
+                                courses.none {
+                                    it.name.contains(draft.courseName, ignoreCase = true) ||
+                                        draft.courseName.contains(it.name, ignoreCase = true)
+                                }
+                            }
+                            if (unmatchedDraft != null) {
+                                importError = "لم أجد مادة باسم ${unmatchedDraft.courseName}. أضف المادة أو صحح اسمها قبل الحفظ."
+                                return@Button
+                            }
+
+                            val newSessions = extractedList.map { draft ->
+                                val matchedCourse = courses.first {
+                                    it.name.contains(draft.courseName, ignoreCase = true) ||
+                                        draft.courseName.contains(it.name, ignoreCase = true)
+                                }
                                 TimetableSessionEntity(
-                                    courseId = matchedCourse?.id ?: 1L,
+                                    courseId = matchedCourse.id,
                                     dayOfWeek = draft.dayOfWeek,
                                     startTime = draft.startTime,
                                     endTime = draft.endTime,
@@ -241,16 +274,25 @@ fun ScheduleImportScreen(
                                 )
                             }
 
-                            viewModel.importParsedSessions(newSessions)
-                            importSuccess = true
+                            isImporting = true
+                            viewModel.importParsedSessions(newSessions) { result ->
+                                isImporting = false
+                                result.fold(
+                                    onSuccess = { importSuccess = true },
+                                    onFailure = {
+                                        importError = "تعذر حفظ الجدول. لم يتم تغيير بياناتك؛ حاول مرة أخرى."
+                                    }
+                                )
+                            }
                         },
+                        enabled = !isImporting,
                         modifier = Modifier
                             .fillMaxWidth()
                             .testTag("confirm_import_button")
                     ) {
                         Icon(imageVector = Icons.Default.Upload, contentDescription = null)
                         Spacer(modifier = Modifier.width(8.dp))
-                        Text("تأكيد الاستيراد إلى الجدول الأسبوعي")
+                        Text(if (isImporting) "جارٍ حفظ الجدول..." else "تأكيد الاستيراد إلى الجدول الأسبوعي")
                     }
                 }
             }
