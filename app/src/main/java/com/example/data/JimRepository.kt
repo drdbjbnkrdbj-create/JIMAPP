@@ -139,7 +139,7 @@ class JimRepository(
                             note.isPinned == sample.isPinned
                     }
                 }
-                .forEach(dao::deleteNote)
+                .forEach { note -> dao.deleteNote(note) }
 
             dao.getProfile()?.let { profile ->
                 if (

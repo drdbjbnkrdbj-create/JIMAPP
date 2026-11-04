@@ -284,25 +284,25 @@ fun ScheduleScreen(
                     )
                 }
 
-                sessionsPendingDeletion.takeIf { it.isNotEmpty() }?.let { selectedSessions ->
-                    ConfirmDeleteDialog(
-                        title = "حذف المحاضرات المحددة",
-                        message = "سيتم حذف ${selectedSessions.size} محاضرات من الجدول.",
-                        onDismiss = { sessionsPendingDeletion = emptyList() },
-                        onConfirm = {
-                            selectedSessions.forEach(viewModel::deleteSession)
-                            selectedSessionIds.clear()
-                            selectionMode = false
-                            sessionsPendingDeletion = emptyList()
-                        }
-                    )
-                }
-
                 item {
                     Spacer(modifier = Modifier.height(32.dp))
                 }
             }
         }
+    }
+
+    sessionsPendingDeletion.takeIf { it.isNotEmpty() }?.let { selectedSessions ->
+        ConfirmDeleteDialog(
+            title = "حذف المحاضرات المحددة",
+            message = "سيتم حذف ${selectedSessions.size} محاضرات من الجدول.",
+            onDismiss = { sessionsPendingDeletion = emptyList() },
+            onConfirm = {
+                selectedSessions.forEach(viewModel::deleteSession)
+                selectedSessionIds.clear()
+                selectionMode = false
+                sessionsPendingDeletion = emptyList()
+            }
+        )
     }
 
     if (showAddSessionDialog) {
