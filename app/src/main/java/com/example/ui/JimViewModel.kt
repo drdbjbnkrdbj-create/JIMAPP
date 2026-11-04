@@ -1,11 +1,12 @@
 package com.example.ui
 
 import android.app.Application
-import android.database.sqlite.SQLiteException
 import android.content.Context
+import android.database.sqlite.SQLiteException
 import android.util.Log
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
+import androidx.room.withTransaction
 import com.example.data.JimDatabase
 import com.example.data.JimRepository
 import com.example.data.SampleData
@@ -21,6 +22,7 @@ import com.example.data.model.StudentProfileEntity
 import com.example.data.model.TimetableImportEntry
 import com.example.data.model.TimetableSessionEntity
 import com.example.notifications.JimNotificationHelper
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
@@ -91,7 +93,9 @@ class JimViewModel(application: Application) : AndroidViewModel(application) {
 
         // Seed initial data if empty
         viewModelScope.launch {
-            SampleData.populateIfEmpty(dao)
+            database.withTransaction {
+                SampleData.populateIfEmpty(dao)
+            }
         }
     }
 
@@ -422,7 +426,8 @@ class JimViewModel(application: Application) : AndroidViewModel(application) {
                 repository.replaceSchedule(entries)
                 entries.minOfOrNull { it.dayOfWeek }?.let { _selectedDayOfWeek.value = it }
                 onResult(Result.success(Unit))
-            } catch (error: SQLiteException) {
+            } catch (error: Exception) {
+                if (error is CancellationException) throw error
                 Log.e("JimViewModel", "Failed to replace timetable", error)
                 onResult(Result.failure(error))
             }

@@ -17,12 +17,17 @@ object ScheduleTextParser {
         RegexOption.IGNORE_CASE
     )
     private val roomPattern = Regex(
-        """(قاعة\s*[\p{L}\d-]+|معمل\s*\d+|Lab\d+|H\d+|C\d+)""",
+        listOf(
+            """قاعة\s*(?:رقم\s*)?[\p{L}\d-]+""",
+            """(?:معمل|مختبر)\s*(?:رقم\s*)?(?:Lab\s*)?[\p{L}]*\d+""",
+            """Lab\s*[\p{L}\d-]+""",
+            """[HC]\s*-?\s*\d+"""
+        ).joinToString("|"),
         RegexOption.IGNORE_CASE
     )
     private val dayNames = listOf(
         listOf("الأحد", "الاحد", "Sunday") to 1,
-        listOf("الإثنين", "الاثنين", "Monday") to 2,
+        listOf("الإثنين", "الأثنين", "الاثنين", "Monday") to 2,
         listOf("الثلاثاء", "Tuesday") to 3,
         listOf("الأربعاء", "الاربعاء", "Wednesday") to 4,
         listOf("الخميس", "Thursday") to 5
@@ -31,7 +36,7 @@ object ScheduleTextParser {
     fun parse(text: String): List<ParsedSessionDraft> {
         val sessions = mutableListOf<ParsedSessionDraft>()
         var currentDay: Int? = null
-        val pendingLines = mutableListOf<String>()
+        var pendingText = ""
 
         for (rawLine in text.lines()) {
             val line = normalizeDigits(rawLine).trim()
@@ -39,55 +44,80 @@ object ScheduleTextParser {
 
             val explicitDay = findDay(line)
             if (explicitDay != null) {
-                if (currentDay != null && currentDay != explicitDay) pendingLines.clear()
+                if (currentDay != null && currentDay != explicitDay) pendingText = ""
                 currentDay = explicitDay
             }
+
             val day = currentDay ?: continue
-            val combinedLine = (pendingLines + line).joinToString(" ")
-            val timeMatches = timePattern.findAll(combinedLine).toList()
+            val lineWithoutDay = removeDayNames(line).trim()
+            if (lineWithoutDay.isBlank()) continue
+
+            val combinedText = listOf(pendingText, lineWithoutDay)
+                .filter(String::isNotBlank)
+                .joinToString(" ")
+            val timeMatches = timePattern.findAll(combinedText).toList()
 
             if (timeMatches.size < 2) {
-                pendingLines += line
+                pendingText = combinedText
                 continue
             }
 
-            pendingLines.clear()
-            val times = timeMatches
-                .mapNotNull { match -> parseTime(match.groupValues[1], match.groupValues[2], match.groupValues[3]) }
-                .toList()
+            val completePairs = timeMatches.size / 2
+            repeat(completePairs) { pairIndex ->
+                val startMatch = timeMatches[pairIndex * 2]
+                val endMatch = timeMatches[pairIndex * 2 + 1]
+                val segmentStart = if (pairIndex == 0) 0 else timeMatches[pairIndex * 2 - 1].range.last + 1
+                val segmentEnd = if (pairIndex + 1 < completePairs) {
+                    timeMatches[(pairIndex + 1) * 2].range.first
+                } else {
+                    combinedText.length
+                }
+                val sessionText = combinedText.substring(segmentStart, segmentEnd)
+                val courseBeforeTime = combinedText.substring(segmentStart, startMatch.range.first)
+                val courseAfterTime = combinedText.substring(endMatch.range.last + 1, segmentEnd)
+                val startTime = parseTime(
+                    startMatch.groupValues[1],
+                    startMatch.groupValues[2],
+                    startMatch.groupValues[3]
+                )
+                val endTime = parseTime(
+                    endMatch.groupValues[1],
+                    endMatch.groupValues[2],
+                    endMatch.groupValues[3]
+                )
+                val roomMatches = roomPattern.findAll(sessionText).toList()
+                val courseName = extractCourseName(courseBeforeTime)
+                    .ifBlank { extractCourseName(courseAfterTime) }
 
-            if (times.size < 2) continue
-
-            val roomMatch = roomPattern.find(combinedLine)?.value.orEmpty()
-            var courseName = combinedLine
-            dayNames.flatMap { it.first }.forEach { name ->
-                courseName = courseName.replace(name, " ", ignoreCase = true)
+                if (
+                    startTime != null &&
+                    endTime != null &&
+                    hasValidTimeRange(startTime, endTime) &&
+                    courseName.isNotBlank()
+                ) {
+                    val classroom = roomMatches.lastOrNull()?.value.orEmpty()
+                        .replace(Regex("""^(?:معمل|مختبر)\s+(?=Lab)""", RegexOption.IGNORE_CASE), "")
+                    val isLab = Regex("""(?<![\p{L}])(?:معمل|مختبر)(?![\p{L}])""")
+                        .containsMatchIn(sessionText) ||
+                        classroom.contains("معمل", ignoreCase = true) ||
+                        classroom.contains("مختبر", ignoreCase = true) ||
+                        classroom.contains("Lab", ignoreCase = true)
+                    sessions += ParsedSessionDraft(
+                        dayOfWeek = day,
+                        courseName = courseName,
+                        startTime = startTime,
+                        endTime = endTime,
+                        classroom = classroom,
+                        sessionType = if (isLab) "معمل" else "محاضرة"
+                    )
+                }
             }
-            timePattern.findAll(combinedLine).toList().asReversed().forEach { match ->
-                courseName = courseName.removeRange(match.range)
-            }
-            if (roomMatch.isNotBlank()) {
-                courseName = courseName.replace(roomMatch, " ", ignoreCase = true)
-            }
-            courseName = courseName
-                .replace(Regex("""\b(?:من|إلى|الى|حتى|الساعة|AM|PM)\b""", RegexOption.IGNORE_CASE), " ")
-                .replace("معمل", " ")
-                .replace(Regex("""[:،,؛|\-–—]"""), " ")
-                .replace(Regex("""\s+"""), " ")
-                .trim()
 
-            if (courseName.isBlank()) continue
-
-            val isLab = combinedLine.contains("معمل", ignoreCase = true) ||
-                combinedLine.contains("Lab", ignoreCase = true)
-            sessions += ParsedSessionDraft(
-                dayOfWeek = day,
-                courseName = courseName,
-                startTime = times[0],
-                endTime = times[1],
-                classroom = roomMatch,
-                sessionType = if (isLab) "معمل" else "محاضرة"
-            )
+            pendingText = if (timeMatches.size % 2 == 1) {
+                combinedText.substring(timeMatches[completePairs * 2 - 1].range.last + 1)
+            } else {
+                ""
+            }
         }
 
         return sessions.sortedWith(compareBy(ParsedSessionDraft::dayOfWeek, ParsedSessionDraft::startTime))
@@ -102,19 +132,51 @@ object ScheduleTextParser {
     private fun findDay(line: String): Int? =
         dayNames.firstNotNullOfOrNull { (names, day) ->
             if (names.any { name ->
-                    if (name.first().isLatinLetter()) {
-                        Regex("""(?i)(?<![\p{L}])${Regex.escape(name)}(?![\p{L}])""").containsMatchIn(line)
-                    } else {
-                        line.contains(name)
-                    }
+                    Regex(
+                        """(?<![\p{L}])${Regex.escape(name)}(?![\p{L}])""",
+                        RegexOption.IGNORE_CASE
+                    ).containsMatchIn(line)
                 }
-            ) day else null
+            ) {
+                day
+            } else {
+                null
+            }
         }
+
+    private fun removeDayNames(line: String): String =
+        dayNames.flatMap { it.first }.fold(line) { result, name ->
+            result.replace(
+                Regex(
+                    """(?<![\p{L}])${Regex.escape(name)}(?![\p{L}])""",
+                    RegexOption.IGNORE_CASE
+                ),
+                " "
+            )
+        }
+
+    private fun extractCourseName(sessionText: String): String {
+        var courseName = timePattern.replace(sessionText, " ")
+        roomPattern.findAll(sessionText).toList().asReversed().forEach { match ->
+            courseName = courseName.removeRange(match.range)
+        }
+
+        return courseName
+            .replace(Regex("""^[\s:：،,؛|–—-]*(?:معمل|مختبر)\s+"""), "")
+            .replace(
+                Regex("""(?<![\p{L}])(?:من|إلى|الى|حتى|الساعة|AM|PM)(?![\p{L}])""", RegexOption.IGNORE_CASE),
+                " "
+            )
+            .replace(Regex("""(?<![\p{L}])(?:اليوم|يوم|المادة|مادة)(?![\p{L}])"""), " ")
+            .replace(Regex("""[:：،,؛|–—-]"""), " ")
+            .replace(Regex("""\s+"""), " ")
+            .trim()
+    }
 
     private fun parseTime(hourText: String, minuteText: String, meridiemText: String): String? {
         var hour = hourText.toIntOrNull() ?: return null
         val minute = minuteText.toIntOrNull() ?: return null
-        val meridiem = meridiemText.lowercase()
+        val meridiem = meridiemText.lowercase(Locale.ROOT)
         val isPm = meridiem == "pm" || meridiem == "م" || meridiem.startsWith("مساء")
         val isAm = meridiem == "am" || meridiem == "ص" || meridiem.startsWith("صباح")
 
@@ -146,6 +208,4 @@ object ScheduleTextParser {
             )
         }
     }
-
-    private fun Char.isLatinLetter(): Boolean = this in 'A'..'Z' || this in 'a'..'z'
 }

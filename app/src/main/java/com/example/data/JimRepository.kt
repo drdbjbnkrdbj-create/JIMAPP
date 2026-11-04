@@ -16,7 +16,6 @@ import com.example.data.model.TimetableImportEntry
 import java.text.Normalizer
 import java.util.Locale
 import kotlinx.coroutines.flow.Flow
-import kotlinx.coroutines.flow.first
 import org.json.JSONArray
 import org.json.JSONObject
 
@@ -92,14 +91,20 @@ class JimRepository(
     suspend fun clearSessions() = dao.clearAllSessions()
 
     suspend fun replaceSchedule(entries: List<TimetableImportEntry>) {
+        require(entries.isNotEmpty()) { "Imported timetable cannot be empty" }
+        require(entries.all { entry ->
+            normalizeCourseName(entry.courseName).isNotEmpty() &&
+                entry.dayOfWeek in 1..5 &&
+                isValidTimeRange(entry.startTime, entry.endTime)
+        }) { "Imported timetable contains an invalid session" }
+
         database.withTransaction {
-            val courses = dao.getAllCoursesFlow().first().toMutableList()
+            val courses = dao.getAllCourses().toMutableList()
             val importedCourses = mutableMapOf<String, CourseEntity>()
             val codeSuffix = System.currentTimeMillis()
 
             val sessions = entries.mapIndexed { index, entry ->
                 val courseKey = normalizeCourseName(entry.courseName)
-                require(courseKey.isNotEmpty()) { "Imported course name cannot be blank" }
 
                 val course = importedCourses.getOrPut(courseKey) {
                     findMatchingCourse(courses, courseKey) ?: CourseEntity(
@@ -125,6 +130,18 @@ class JimRepository(
             dao.clearAllSessions()
             dao.insertSessions(sessions)
         }
+    }
+
+    private fun isValidTimeRange(startTime: String, endTime: String): Boolean {
+        fun minutes(value: String): Int? {
+            val match = Regex("""^([01]\d|2[0-3]):([0-5]\d)$""")
+                .matchEntire(value) ?: return null
+            return match.groupValues[1].toInt() * 60 + match.groupValues[2].toInt()
+        }
+
+        val start = minutes(startTime) ?: return false
+        val end = minutes(endTime) ?: return false
+        return end > start
     }
 
     private fun findMatchingCourse(courses: List<CourseEntity>, courseKey: String): CourseEntity? {

@@ -26,6 +26,9 @@ interface JimDao {
     @Query("SELECT * FROM courses ORDER BY id ASC")
     fun getAllCoursesFlow(): Flow<List<CourseEntity>>
 
+    @Query("SELECT * FROM courses ORDER BY id ASC")
+    suspend fun getAllCourses(): List<CourseEntity>
+
     @Query("SELECT * FROM courses WHERE id = :id LIMIT 1")
     suspend fun getCourseById(id: Long): CourseEntity?
 

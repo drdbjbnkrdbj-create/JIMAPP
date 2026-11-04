@@ -75,6 +75,49 @@ class ScheduleTextParserTest {
         assertEquals(5, sessions.size)
         assertEquals("قواعد البيانات", sessions[2].courseName)
         assertEquals("Lab6", sessions[2].classroom)
+        assertEquals("معمل", sessions[2].sessionType)
         assertTrue(sessions.all { ScheduleTextParser.hasValidTimeRange(it.startTime, it.endTime) })
+    }
+
+    @Test
+    fun parsesMultipleLecturesForEachWeekdayAndKeepsTheirRooms() {
+        val sessions = ScheduleTextParser.parse(
+            """
+                الأحد:
+                08:00 - 09:00 هندسة البرمجيات قاعة H2
+                09:15 - 10:15 الرياضيات المتقطعة قاعة H1
+                الإثنين: قواعد البيانات 10:00 إلى 11:00 معمل Lab6
+                الثلاثاء: الذكاء الاصطناعي 08:30 - 10:00 H3
+                الأربعاء: لغة إنجليزية 11:00 - 12:00 C1
+                الخميس: فيزياء 12:00 - 13:00 قاعة 201
+            """.trimIndent()
+        )
+
+        assertEquals(6, sessions.size)
+        assertEquals(listOf(1, 1, 2, 3, 4, 5), sessions.map { it.dayOfWeek })
+        assertEquals(
+            listOf(
+                "هندسة البرمجيات" to "H2",
+                "الرياضيات المتقطعة" to "H1",
+                "قواعد البيانات" to "Lab6",
+                "الذكاء الاصطناعي" to "H3",
+                "لغة إنجليزية" to "C1",
+                "فيزياء" to "قاعة 201"
+            ),
+            sessions.map { it.courseName to it.classroom }
+        )
+    }
+
+    @Test
+    fun parsesSeveralLecturesOnOneLineInsteadOfDroppingLaterTimePairs() {
+        val sessions = ScheduleTextParser.parse(
+            "الأحد: هندسة البرمجيات 08:00 - 09:00 قاعة H1 | رياضيات 09:15 - 10:15 قاعة H2"
+        )
+
+        assertEquals(2, sessions.size)
+        assertEquals(listOf("هندسة البرمجيات", "رياضيات"), sessions.map { it.courseName })
+        assertEquals(listOf("H1", "H2"), sessions.map { it.classroom })
+        assertEquals(listOf("08:00" to "09:00", "09:15" to "10:15"),
+            sessions.map { it.startTime to it.endTime })
     }
 }
