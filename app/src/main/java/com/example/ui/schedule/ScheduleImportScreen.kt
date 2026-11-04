@@ -270,7 +270,7 @@ fun ScheduleImportScreen(
                             viewModel.replaceSchedule(entries) { result ->
                                 isImporting = false
                                 result.fold(
-                                    onSuccess = onBack,
+                                    onSuccess = { onBack() },
                                     onFailure = { error ->
                                         android.util.Log.e(
                                             "ScheduleImportScreen",
