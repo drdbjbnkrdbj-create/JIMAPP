@@ -25,12 +25,17 @@ import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.Computer
 import androidx.compose.material.icons.filled.DateRange
 import androidx.compose.material.icons.filled.Description
+import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Folder
 import androidx.compose.material.icons.filled.Home
 import androidx.compose.material.icons.filled.Menu
 import androidx.compose.material.icons.filled.MoreHoriz
 import androidx.compose.material.icons.filled.Psychology
+import androidx.compose.material.icons.filled.RadioButtonUnchecked
 import androidx.compose.material.icons.filled.Schedule
+import androidx.compose.material.icons.filled.SelectAll
+import androidx.compose.material.icons.filled.Share
 import androidx.compose.material.icons.filled.School
 import androidx.compose.material.icons.filled.Storage
 import androidx.compose.material.icons.filled.Translate
@@ -96,6 +101,63 @@ fun ConfirmDeleteDialog(
                 Text("إلغاء")
             }
         }
+    )
+}
+
+@Composable
+fun BulkSelectionActions(
+    selectedCount: Int,
+    onSelectAll: () -> Unit,
+    onDelete: () -> Unit,
+    onShare: (() -> Unit)? = null,
+    onCancel: () -> Unit,
+    modifier: Modifier = Modifier
+) {
+    Surface(
+        modifier = modifier.fillMaxWidth(),
+        color = MaterialTheme.colorScheme.surface,
+        tonalElevation = 2.dp
+    ) {
+        Row(
+            modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Text("$selectedCount محدد", style = MaterialTheme.typography.titleSmall)
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                IconButton(onClick = onSelectAll) {
+                    Icon(Icons.Default.SelectAll, contentDescription = "تحديد الكل")
+                }
+                if (onShare != null) {
+                    IconButton(onClick = onShare, enabled = selectedCount > 0) {
+                        Icon(Icons.Default.Share, contentDescription = "مشاركة المحدد")
+                    }
+                }
+                IconButton(onClick = onDelete, enabled = selectedCount > 0) {
+                    Icon(
+                        Icons.Default.Delete,
+                        contentDescription = "حذف المحدد",
+                        tint = MaterialTheme.colorScheme.error
+                    )
+                }
+                IconButton(onClick = onCancel) {
+                    Icon(Icons.Default.Close, contentDescription = "إلغاء التحديد")
+                }
+            }
+        }
+    }
+}
+
+@Composable
+fun BulkSelectionIndicator(
+    selected: Boolean,
+    modifier: Modifier = Modifier
+) {
+    Icon(
+        imageVector = if (selected) Icons.Default.CheckCircle else Icons.Default.RadioButtonUnchecked,
+        contentDescription = if (selected) "محدد" else "تحديد",
+        tint = if (selected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant,
+        modifier = modifier.size(24.dp)
     )
 }
 

@@ -24,3 +24,5 @@ View your app in AI Studio: https://ai.studio/apps/520efd69-e5fa-4bf2-b0f3-45196
 ## Download a debug APK
 
 Every push to `main` builds a debug APK. Open the repository's **Actions** tab, select the latest **Build Android APK** run, and download the `jim-debug-apk` artifact. This debug-signed APK is for testing and direct installation, not Play Store publishing.
+
+The workflow reuses its debug signing key so future APKs can be installed as updates and keep the app's local data. APKs from older workflow runs may have different signing keys; back up any important local data before upgrading from one of those builds.

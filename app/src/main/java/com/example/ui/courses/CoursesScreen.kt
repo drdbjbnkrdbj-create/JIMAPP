@@ -20,6 +20,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowForwardIos
 import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.Checklist
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material3.AlertDialog
@@ -36,6 +37,7 @@ import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -44,6 +46,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
@@ -51,6 +54,9 @@ import com.example.data.model.CourseEntity
 import com.example.ui.JimViewModel
 import com.example.ui.components.CourseIconBadge
 import com.example.ui.components.ConfirmDeleteDialog
+import com.example.ui.components.BulkSelectionActions
+import com.example.ui.components.BulkSelectionIndicator
+import com.example.ui.library.shareText
 import com.example.ui.theme.JimPrimaryBlue
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -60,10 +66,14 @@ fun CoursesScreen(
     onOpenCourse: (Long) -> Unit,
     modifier: Modifier = Modifier
 ) {
+    val context = LocalContext.current
     val courses by viewModel.courses.collectAsState()
     val searchQuery by viewModel.courseSearchQuery.collectAsState()
     var showAddDialog by remember { mutableStateOf(false) }
     var courseToDelete by remember { mutableStateOf<CourseEntity?>(null) }
+    val selectedCourseIds = remember { mutableStateListOf<Long>() }
+    var selectionMode by remember { mutableStateOf(false) }
+    var coursesPendingDeletion by remember { mutableStateOf<List<CourseEntity>>(emptyList()) }
 
     val filteredCourses = courses.filter {
         it.name.contains(searchQuery, ignoreCase = true) ||
@@ -107,8 +117,46 @@ fun CoursesScreen(
                 color = MaterialTheme.colorScheme.onBackground
             )
 
-            // Balance spacer
-            Spacer(modifier = Modifier.size(40.dp))
+            IconButton(
+                onClick = {
+                    selectionMode = !selectionMode
+                    selectedCourseIds.clear()
+                },
+                modifier = Modifier.testTag("select_courses_button")
+            ) {
+                Icon(
+                    Icons.Default.Checklist,
+                    contentDescription = "تحديد المواد",
+                    tint = if (selectionMode) JimPrimaryBlue else MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            }
+        }
+
+        if (selectionMode) {
+            BulkSelectionActions(
+                selectedCount = selectedCourseIds.size,
+                onSelectAll = {
+                    selectedCourseIds.clear()
+                    selectedCourseIds.addAll(filteredCourses.map { it.id })
+                },
+                onShare = {
+                    val selectedCourses = courses.filter { it.id in selectedCourseIds }
+                    shareText(
+                        context,
+                        "مشاركة المواد المحددة",
+                        selectedCourses.joinToString("\n\n") {
+                            "${it.name} (${it.code})\n${it.instructor}"
+                        }
+                    )
+                },
+                onDelete = {
+                    coursesPendingDeletion = courses.filter { it.id in selectedCourseIds }
+                },
+                onCancel = {
+                    selectedCourseIds.clear()
+                    selectionMode = false
+                }
+            )
         }
 
         Spacer(modifier = Modifier.height(16.dp))
@@ -148,7 +196,12 @@ fun CoursesScreen(
             items(filteredCourses) { course ->
                 CourseItemCard(
                     course = course,
-                    onClick = { onOpenCourse(course.id) },
+                    selectionMode = selectionMode,
+                    isSelected = course.id in selectedCourseIds,
+                    onToggleSelected = {
+                        if (!selectedCourseIds.remove(course.id)) selectedCourseIds.add(course.id)
+                    },
+                    onClick = { if (!selectionMode) onOpenCourse(course.id) },
                     onDelete = { courseToDelete = course }
                 )
             }
@@ -180,11 +233,28 @@ fun CoursesScreen(
             }
         )
     }
+
+    coursesPendingDeletion.takeIf { it.isNotEmpty() }?.let { selectedCourses ->
+        ConfirmDeleteDialog(
+            title = "حذف المواد المحددة",
+            message = "سيتم حذف ${selectedCourses.size} مواد وكل ما يرتبط بها من محاضرات ودرجات وملفات وجدول.",
+            onDismiss = { coursesPendingDeletion = emptyList() },
+            onConfirm = {
+                selectedCourses.forEach(viewModel::deleteCourse)
+                selectedCourseIds.clear()
+                selectionMode = false
+                coursesPendingDeletion = emptyList()
+            }
+        )
+    }
 }
 
 @Composable
 fun CourseItemCard(
     course: CourseEntity,
+    selectionMode: Boolean,
+    isSelected: Boolean,
+    onToggleSelected: () -> Unit,
     onClick: () -> Unit,
     onDelete: () -> Unit
 ) {
@@ -192,7 +262,7 @@ fun CourseItemCard(
         modifier = Modifier
             .fillMaxWidth()
             .clip(RoundedCornerShape(16.dp))
-            .clickable { onClick() }
+            .clickable { if (selectionMode) onToggleSelected() else onClick() }
             .testTag("course_item_${course.id}"),
         shape = RoundedCornerShape(16.dp),
         colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant)
@@ -203,6 +273,10 @@ fun CourseItemCard(
                 .padding(16.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
+            if (selectionMode) {
+                BulkSelectionIndicator(isSelected)
+                Spacer(modifier = Modifier.width(10.dp))
+            }
             CourseIconBadge(
                 iconKey = course.iconKey,
                 colorHex = course.colorHex,
@@ -224,12 +298,14 @@ fun CourseItemCard(
                 )
             }
 
-            IconButton(onClick = onDelete, modifier = Modifier.size(36.dp)) {
-                Icon(
-                    imageVector = Icons.Default.Delete,
-                    contentDescription = "حذف المادة",
-                    tint = MaterialTheme.colorScheme.error
-                )
+            if (!selectionMode) {
+                IconButton(onClick = onDelete, modifier = Modifier.size(36.dp)) {
+                    Icon(
+                        imageVector = Icons.Default.Delete,
+                        contentDescription = "حذف المادة",
+                        tint = MaterialTheme.colorScheme.error
+                    )
+                }
             }
             Icon(
                 imageVector = Icons.AutoMirrored.Filled.ArrowForwardIos,
@@ -279,7 +355,7 @@ fun AddCourseDialog(
                 OutlinedTextField(
                     value = code,
                     onValueChange = { code = it },
-                    label = { Text("رمز المادة (مثال: CS301)") },
+                    label = { Text("رمز المادة") },
                     singleLine = true,
                     modifier = Modifier.fillMaxWidth()
                 )

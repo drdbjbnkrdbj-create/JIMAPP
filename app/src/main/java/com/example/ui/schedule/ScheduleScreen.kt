@@ -20,6 +20,7 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.Checklist
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.FileDownload
 import androidx.compose.material3.AlertDialog
@@ -39,6 +40,7 @@ import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.mutableStateOf
@@ -49,6 +51,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -56,6 +59,10 @@ import com.example.data.model.CourseEntity
 import com.example.data.model.TimetableSessionEntity
 import com.example.ui.JimViewModel
 import com.example.ui.components.CourseIconBadge
+import com.example.ui.components.BulkSelectionActions
+import com.example.ui.components.BulkSelectionIndicator
+import com.example.ui.components.ConfirmDeleteDialog
+import com.example.ui.library.shareText
 import com.example.ui.theme.JimPrimaryBlue
 
 @Composable
@@ -65,11 +72,15 @@ fun ScheduleScreen(
     onOpenCourse: (Long) -> Unit,
     modifier: Modifier = Modifier
 ) {
+    val context = LocalContext.current
     val selectedDay by viewModel.selectedDayOfWeek.collectAsState()
     val sessions by viewModel.sessions.collectAsState()
     val courses by viewModel.courses.collectAsState()
 
     var showAddSessionDialog by remember { mutableStateOf(false) }
+    val selectedSessionIds = remember { mutableStateListOf<Long>() }
+    var selectionMode by remember { mutableStateOf(false) }
+    var sessionsPendingDeletion by remember { mutableStateOf<List<TimetableSessionEntity>>(emptyList()) }
 
     val days = listOf(
         1 to "الأحد",
@@ -119,21 +130,65 @@ fun ScheduleScreen(
                 color = MaterialTheme.colorScheme.onBackground
             )
 
-            // Add session button
-            IconButton(
-                onClick = { showAddSessionDialog = true },
-                modifier = Modifier
-                    .size(40.dp)
-                    .clip(CircleShape)
-                    .background(MaterialTheme.colorScheme.surfaceVariant)
-                    .testTag("add_session_button")
-            ) {
-                Icon(
-                    imageVector = Icons.Default.Add,
-                    contentDescription = "إضافة محاضرة",
-                    tint = JimPrimaryBlue
-                )
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                IconButton(
+                    onClick = {
+                        selectionMode = !selectionMode
+                        selectedSessionIds.clear()
+                    },
+                    modifier = Modifier.testTag("select_sessions_button")
+                ) {
+                    Icon(
+                        Icons.Default.Checklist,
+                        contentDescription = "تحديد المحاضرات",
+                        tint = if (selectionMode) JimPrimaryBlue else MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
+                IconButton(
+                    onClick = { showAddSessionDialog = true },
+                    modifier = Modifier
+                        .size(40.dp)
+                        .clip(CircleShape)
+                        .background(MaterialTheme.colorScheme.surfaceVariant)
+                        .testTag("add_session_button")
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.Add,
+                        contentDescription = "إضافة محاضرة",
+                        tint = JimPrimaryBlue
+                    )
+                }
             }
+        }
+
+        if (selectionMode) {
+            BulkSelectionActions(
+                selectedCount = selectedSessionIds.size,
+                onSelectAll = {
+                    selectedSessionIds.clear()
+                    selectedSessionIds.addAll(daySessions.map { it.id })
+                },
+                onShare = {
+                    val selectedSessions = sessions.filter { it.id in selectedSessionIds }
+                    shareText(
+                        context,
+                        "مشاركة المحاضرات المحددة",
+                        selectedSessions.joinToString("\n\n") { session ->
+                            val dayName = days.firstOrNull { it.first == session.dayOfWeek }?.second.orEmpty()
+                            val courseName = courses.firstOrNull { it.id == session.courseId }?.name.orEmpty()
+                            "$courseName - $dayName\n${session.startTime} - ${session.endTime}" +
+                                session.classroom.takeIf { it.isNotBlank() }?.let { "\n$it" }.orEmpty()
+                        }
+                    )
+                },
+                onDelete = {
+                    sessionsPendingDeletion = sessions.filter { it.id in selectedSessionIds }
+                },
+                onCancel = {
+                    selectedSessionIds.clear()
+                    selectionMode = false
+                }
+            )
         }
 
         Spacer(modifier = Modifier.height(16.dp))
@@ -219,8 +274,27 @@ fun ScheduleScreen(
                     TimetableSessionItem(
                         session = session,
                         course = course,
-                        onOpenCourse = { course?.let { onOpenCourse(it.id) } },
+                        selectionMode = selectionMode,
+                        isSelected = session.id in selectedSessionIds,
+                        onToggleSelected = {
+                            if (!selectedSessionIds.remove(session.id)) selectedSessionIds.add(session.id)
+                        },
+                        onOpenCourse = { if (!selectionMode) course?.let { onOpenCourse(it.id) } },
                         onDelete = { viewModel.deleteSession(session) }
+                    )
+                }
+
+                sessionsPendingDeletion.takeIf { it.isNotEmpty() }?.let { selectedSessions ->
+                    ConfirmDeleteDialog(
+                        title = "حذف المحاضرات المحددة",
+                        message = "سيتم حذف ${selectedSessions.size} محاضرات من الجدول.",
+                        onDismiss = { sessionsPendingDeletion = emptyList() },
+                        onConfirm = {
+                            selectedSessions.forEach(viewModel::deleteSession)
+                            selectedSessionIds.clear()
+                            selectionMode = false
+                            sessionsPendingDeletion = emptyList()
+                        }
                     )
                 }
 
@@ -250,6 +324,9 @@ fun ScheduleScreen(
 fun TimetableSessionItem(
     session: TimetableSessionEntity,
     course: CourseEntity?,
+    selectionMode: Boolean,
+    isSelected: Boolean,
+    onToggleSelected: () -> Unit,
     onOpenCourse: () -> Unit,
     onDelete: () -> Unit
 ) {
@@ -257,7 +334,7 @@ fun TimetableSessionItem(
         modifier = Modifier
             .fillMaxWidth()
             .clip(RoundedCornerShape(16.dp))
-            .clickable { onOpenCourse() }
+            .clickable { if (selectionMode) onToggleSelected() else onOpenCourse() }
             .testTag("session_item_${session.id}"),
         shape = RoundedCornerShape(16.dp),
         colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant)
@@ -268,6 +345,10 @@ fun TimetableSessionItem(
                 .padding(14.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
+            if (selectionMode) {
+                BulkSelectionIndicator(isSelected)
+                Spacer(modifier = Modifier.width(10.dp))
+            }
             CourseIconBadge(
                 iconKey = course?.iconKey ?: "computer",
                 colorHex = course?.colorHex ?: "#2563EB",
@@ -297,7 +378,7 @@ fun TimetableSessionItem(
                 }
             }
 
-            Column(horizontalAlignment = Alignment.End) {
+            if (!selectionMode) Column(horizontalAlignment = Alignment.End) {
                 Box(
                     modifier = Modifier
                         .clip(RoundedCornerShape(8.dp))
@@ -344,8 +425,8 @@ fun AddSessionDialog(
 
     var selectedCourseId by remember { mutableLongStateOf(courses.first().id) }
     var selectedDay by remember { mutableIntStateOf(initialDay) }
-    var startTime by remember { mutableStateOf("08:00") }
-    var endTime by remember { mutableStateOf("09:00") }
+    var startTime by remember { mutableStateOf("") }
+    var endTime by remember { mutableStateOf("") }
     var classroom by remember { mutableStateOf("") }
     var sessionType by remember { mutableStateOf("محاضرة") }
     var saveError by remember { mutableStateOf<String?>(null) }
@@ -420,7 +501,7 @@ fun AddSessionDialog(
                         Text(sessionType)
                     }
                 }
-                if (!validTimeRange) {
+                if (startTime.isNotBlank() && endTime.isNotBlank() && !validTimeRange) {
                     Text(
                         text = "تحقق من الوقت: يجب أن يكون بصيغة 08:00 وأن تكون النهاية بعد البداية.",
                         color = MaterialTheme.colorScheme.error,

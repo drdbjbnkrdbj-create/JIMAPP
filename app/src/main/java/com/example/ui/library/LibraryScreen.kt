@@ -1,13 +1,9 @@
 package com.example.ui.library
 
-import android.content.Intent
 import android.content.ActivityNotFoundException
+import android.content.Intent
 import android.net.Uri
-import android.provider.OpenableColumns
-import android.webkit.MimeTypeMap
 import android.widget.Toast
-import androidx.activity.compose.rememberLauncherForActivityResult
-import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -37,6 +33,7 @@ import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Image
 import androidx.compose.material.icons.filled.PictureAsPdf
 import androidx.compose.material.icons.filled.Search
+import androidx.compose.material.icons.filled.Checklist
 import androidx.compose.material.icons.filled.Share
 import androidx.compose.material.icons.filled.Slideshow
 import androidx.compose.material3.AlertDialog
@@ -56,6 +53,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
@@ -71,6 +69,8 @@ import androidx.compose.ui.unit.sp
 import com.example.data.model.LibraryDocumentEntity
 import com.example.ui.JimViewModel
 import com.example.ui.components.ConfirmDeleteDialog
+import com.example.ui.components.BulkSelectionActions
+import com.example.ui.components.BulkSelectionIndicator
 import com.example.ui.theme.CourseAmber
 import com.example.ui.theme.CourseBlue
 import com.example.ui.theme.CourseCyan
@@ -91,69 +91,10 @@ fun LibraryScreen(
 
     var showAddFileDialog by remember { mutableStateOf(false) }
     var documentToDelete by remember { mutableStateOf<LibraryDocumentEntity?>(null) }
-    val filePicker = rememberLauncherForActivityResult(
-        contract = ActivityResultContracts.OpenDocument()
-    ) { uri ->
-        if (uri != null) {
-            val hasPersistentAccess = try {
-                context.contentResolver.takePersistableUriPermission(
-                    uri,
-                    Intent.FLAG_GRANT_READ_URI_PERMISSION
-                )
-                true
-            } catch (error: SecurityException) {
-                Toast.makeText(context, "تعذر الاحتفاظ بإذن قراءة الملف.", Toast.LENGTH_LONG).show()
-                false
-            }
-
-            if (hasPersistentAccess) {
-                var fileName = uri.lastPathSegment?.substringAfterLast('/') ?: "مستند"
-                var fileSizeBytes: Long? = null
-                context.contentResolver.query(
-                    uri,
-                    arrayOf(OpenableColumns.DISPLAY_NAME, OpenableColumns.SIZE),
-                    null,
-                    null,
-                    null
-                )?.use { cursor ->
-                    if (cursor.moveToFirst()) {
-                        val nameColumn = cursor.getColumnIndex(OpenableColumns.DISPLAY_NAME)
-                        val sizeColumn = cursor.getColumnIndex(OpenableColumns.SIZE)
-                        if (nameColumn >= 0) fileName = cursor.getString(nameColumn) ?: fileName
-                        if (sizeColumn >= 0 && !cursor.isNull(sizeColumn)) {
-                            fileSizeBytes = cursor.getLong(sizeColumn)
-                        }
-                    }
-                }
-
-                val mimeType = context.contentResolver.getType(uri)
-                    ?: MimeTypeMap.getSingleton()
-                        .getMimeTypeFromExtension(fileName.substringAfterLast('.', "").lowercase())
-                    ?: "*/*"
-                val extension = fileName.substringAfterLast('.', "").lowercase()
-                val fileType = when {
-                    mimeType == "application/pdf" || extension == "pdf" -> "PDF"
-                    extension in setOf("doc", "docx", "odt") ||
-                        mimeType.contains("word", ignoreCase = true) -> "WORD"
-                    extension in setOf("ppt", "pptx", "odp") ||
-                        mimeType.contains("presentation", ignoreCase = true) ||
-                        mimeType.contains("powerpoint", ignoreCase = true) -> "PPTX"
-                    mimeType.startsWith("image/") -> "IMAGE"
-                    else -> "FILE"
-                }
-                val title = fileName.substringBeforeLast('.', fileName).ifBlank { fileName }
-                viewModel.addDocument(
-                    courseId = null,
-                    title = title,
-                    fileType = fileType,
-                    fileSize = formatFileSize(fileSizeBytes),
-                    category = "محاضرات",
-                    contentSnippet = "",
-                    uri = uri.toString()
-                )
-            }
-        }
-    }
+    val selectedDocumentIds = remember { mutableStateListOf<Long>() }
+    var selectionMode by remember { mutableStateOf(false) }
+    var documentsPendingDeletion by remember { mutableStateOf<List<LibraryDocumentEntity>>(emptyList()) }
+    val importDocument = rememberDocumentImportLauncher(viewModel, courseId = null)
 
     val filterChips = listOf("الكل", "PDF", "Word", "PowerPoint")
 
@@ -174,7 +115,7 @@ fun LibraryScreen(
     Scaffold(
         floatingActionButton = {
             FloatingActionButton(
-                onClick = { filePicker.launch(arrayOf("*/*")) },
+                onClick = importDocument,
                 containerColor = JimPrimaryBlue,
                 contentColor = Color.White,
                 shape = CircleShape,
@@ -220,7 +161,39 @@ fun LibraryScreen(
                     color = MaterialTheme.colorScheme.onBackground
                 )
 
-                Spacer(modifier = Modifier.size(40.dp))
+                IconButton(
+                    onClick = {
+                        selectionMode = !selectionMode
+                        selectedDocumentIds.clear()
+                    },
+                    modifier = Modifier.testTag("select_library_documents_button")
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.Checklist,
+                        contentDescription = "تحديد الملفات",
+                        tint = if (selectionMode) JimPrimaryBlue else MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
+            }
+
+            if (selectionMode) {
+                BulkSelectionActions(
+                    selectedCount = selectedDocumentIds.size,
+                    onSelectAll = {
+                        selectedDocumentIds.clear()
+                        selectedDocumentIds.addAll(filteredDocs.map { it.id })
+                    },
+                    onDelete = {
+                        documentsPendingDeletion = documents.filter { it.id in selectedDocumentIds }
+                    },
+                    onShare = {
+                        shareDocuments(context, documents.filter { it.id in selectedDocumentIds })
+                    },
+                    onCancel = {
+                        selectedDocumentIds.clear()
+                        selectionMode = false
+                    }
+                )
             }
 
             Spacer(modifier = Modifier.height(16.dp))
@@ -303,6 +276,11 @@ fun LibraryScreen(
                     items(filteredDocs) { doc ->
                         LibraryDocumentCard(
                             doc = doc,
+                            selectionMode = selectionMode,
+                            isSelected = doc.id in selectedDocumentIds,
+                            onToggleSelected = {
+                                if (!selectedDocumentIds.remove(doc.id)) selectedDocumentIds.add(doc.id)
+                            },
                             onClick = {
                                 val documentUri = doc.uri
                                 if (documentUri == null) {
@@ -327,25 +305,7 @@ fun LibraryScreen(
                                     }
                                 }
                             },
-                            onShare = {
-                                val documentUri = doc.uri
-                                val sendIntent = Intent(Intent.ACTION_SEND).apply {
-                                    if (documentUri == null) {
-                                        putExtra(
-                                            Intent.EXTRA_TEXT,
-                                            "مستند دراسي من تطبيق جيم: ${doc.title}\n\n${doc.contentSnippet.take(200)}"
-                                        )
-                                        type = "text/plain"
-                                    } else {
-                                        val fileUri = Uri.parse(documentUri)
-                                        putExtra(Intent.EXTRA_STREAM, fileUri)
-                                        type = context.contentResolver.getType(fileUri) ?: "*/*"
-                                        addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
-                                    }
-                                }
-                                val shareIntent = Intent.createChooser(sendIntent, "مشاركة المستند")
-                                context.startActivity(shareIntent)
-                            },
+                            onShare = { shareDocuments(context, listOf(doc)) },
                             onBookmarkToggle = { viewModel.toggleDocBookmark(doc) },
                             onDelete = { documentToDelete = doc }
                         )
@@ -355,8 +315,23 @@ fun LibraryScreen(
                         Spacer(modifier = Modifier.height(80.dp))
                     }
                 }
+
             }
         }
+    }
+
+    documentsPendingDeletion.takeIf { it.isNotEmpty() }?.let { selectedDocuments ->
+        ConfirmDeleteDialog(
+            title = "حذف الملفات المحددة",
+            message = "سيتم حذف ${selectedDocuments.size} ملفات وملاحظاتها. لا يمكن التراجع عن ذلك.",
+            onDismiss = { documentsPendingDeletion = emptyList() },
+            onConfirm = {
+                selectedDocuments.forEach(viewModel::deleteDocument)
+                selectedDocumentIds.clear()
+                selectionMode = false
+                documentsPendingDeletion = emptyList()
+            }
+        )
     }
 
     if (showAddFileDialog) {
@@ -382,17 +357,12 @@ fun LibraryScreen(
     }
 }
 
-private fun formatFileSize(bytes: Long?): String {
-    if (bytes == null || bytes < 0L) return "الحجم غير معروف"
-    if (bytes < 1024L) return "$bytes B"
-    val kilobytes = bytes / 1024.0
-    if (kilobytes < 1024.0) return "%.1f KB".format(kilobytes)
-    return "%.1f MB".format(kilobytes / 1024.0)
-}
-
 @Composable
 fun LibraryDocumentCard(
     doc: LibraryDocumentEntity,
+    selectionMode: Boolean,
+    isSelected: Boolean,
+    onToggleSelected: () -> Unit,
     onClick: () -> Unit,
     onShare: () -> Unit,
     onBookmarkToggle: () -> Unit,
@@ -409,7 +379,7 @@ fun LibraryDocumentCard(
         modifier = Modifier
             .fillMaxWidth()
             .clip(RoundedCornerShape(16.dp))
-            .clickable { onClick() }
+            .clickable { if (selectionMode) onToggleSelected() else onClick() }
             .testTag("document_card_${doc.id}"),
         shape = RoundedCornerShape(16.dp),
         colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant)
@@ -438,6 +408,11 @@ fun LibraryDocumentCard(
 
             Spacer(modifier = Modifier.width(14.dp))
 
+            if (selectionMode) {
+                BulkSelectionIndicator(selected = isSelected)
+                Spacer(modifier = Modifier.width(10.dp))
+            }
+
             Column(modifier = Modifier.weight(1f)) {
                 Text(
                     text = doc.title,
@@ -453,7 +428,7 @@ fun LibraryDocumentCard(
                 )
             }
 
-            Row(verticalAlignment = Alignment.CenterVertically) {
+            if (!selectionMode) Row(verticalAlignment = Alignment.CenterVertically) {
                 IconButton(onClick = onShare, modifier = Modifier.size(32.dp)) {
                     Icon(
                         imageVector = Icons.Default.Share,

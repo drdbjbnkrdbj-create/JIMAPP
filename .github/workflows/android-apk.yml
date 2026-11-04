@@ -26,17 +26,27 @@ jobs:
         with:
           packages: platform-tools
 
-      - name: Create debug signing key
+      - name: Restore stable debug signing key
+        id: cache-debug-key
+        uses: actions/cache@v4
+        with:
+          path: debug.keystore
+          key: jim-debug-keystore-v1
+
+      - name: Create debug signing key if missing
+        if: steps.cache-debug-key.outputs.cache-hit != 'true'
         run: |
-          keytool -genkeypair -v \
-            -keystore debug.keystore \
-            -storepass android \
-            -alias androiddebugkey \
-            -keypass android \
-            -keyalg RSA \
-            -keysize 2048 \
-            -validity 10000 \
-            -dname "CN=Android Debug,O=Android,C=US"
+          if [ ! -f debug.keystore ]; then
+            keytool -genkeypair -v \
+              -keystore debug.keystore \
+              -storepass android \
+              -alias androiddebugkey \
+              -keypass android \
+              -keyalg RSA \
+              -keysize 2048 \
+              -validity 10000 \
+              -dname "CN=Android Debug,O=Android,C=US"
+          fi
 
       - name: Build debug APK
         run: ./gradlew assembleDebug --no-daemon

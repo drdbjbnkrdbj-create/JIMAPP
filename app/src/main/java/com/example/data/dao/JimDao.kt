@@ -29,6 +29,9 @@ interface JimDao {
     @Query("SELECT * FROM courses ORDER BY id ASC")
     suspend fun getAllCourses(): List<CourseEntity>
 
+    @Query("SELECT COUNT(*) FROM courses")
+    suspend fun getCourseCount(): Int
+
     @Query("SELECT * FROM courses WHERE id = :id LIMIT 1")
     suspend fun getCourseById(id: Long): CourseEntity?
 
@@ -233,6 +236,9 @@ interface JimDao {
     // Student Profile
     @Query("SELECT * FROM student_profile WHERE id = 1 LIMIT 1")
     fun getProfileFlow(): Flow<StudentProfileEntity?>
+
+    @Query("SELECT * FROM student_profile WHERE id = 1 LIMIT 1")
+    suspend fun getProfile(): StudentProfileEntity?
 
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun saveProfile(profile: StudentProfileEntity)

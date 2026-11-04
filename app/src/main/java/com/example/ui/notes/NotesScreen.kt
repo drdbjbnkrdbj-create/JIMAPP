@@ -22,6 +22,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowForwardIos
 import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.Checklist
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.PinDrop
 import androidx.compose.material.icons.filled.PushPin
@@ -41,6 +42,7 @@ import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
@@ -49,12 +51,17 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.example.data.model.CourseNoteEntity
 import com.example.ui.JimViewModel
 import com.example.ui.components.JimTopBar
+import com.example.ui.components.BulkSelectionActions
+import com.example.ui.components.BulkSelectionIndicator
+import com.example.ui.components.ConfirmDeleteDialog
+import com.example.ui.library.shareText
 import com.example.ui.theme.CourseAmber
 import com.example.ui.theme.CourseRed
 import com.example.ui.theme.JimPrimaryBlue
@@ -67,11 +74,15 @@ fun NotesScreen(
 ) {
     BackHandler { onBack() }
 
+    val context = LocalContext.current
     val notes by viewModel.notes.collectAsState()
     val activeFilter by viewModel.notesFilter.collectAsState()
     var searchQuery by remember { mutableStateOf("") }
     var showAddDialog by remember { mutableStateOf(false) }
     var selectedNoteForEdit by remember { mutableStateOf<CourseNoteEntity?>(null) }
+    val selectedNoteIds = remember { mutableStateListOf<Long>() }
+    var selectionMode by remember { mutableStateOf(false) }
+    var notesPendingDeletion by remember { mutableStateOf<List<CourseNoteEntity>>(emptyList()) }
 
     val categories = listOf("الكل", "عام", "مهم", "أسئلة", "مراجعة")
 
@@ -103,8 +114,47 @@ fun NotesScreen(
         ) {
             JimTopBar(
                 title = "الملاحظات السريعة",
-                onBackClick = onBack
+                onBackClick = onBack,
+                actions = {
+                    IconButton(
+                        onClick = {
+                            selectionMode = !selectionMode
+                            selectedNoteIds.clear()
+                        }
+                    ) {
+                        Icon(
+                            Icons.Default.Checklist,
+                            contentDescription = "تحديد الملاحظات",
+                            tint = if (selectionMode) JimPrimaryBlue else MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
+                }
             )
+
+            if (selectionMode) {
+                BulkSelectionActions(
+                    selectedCount = selectedNoteIds.size,
+                    onSelectAll = {
+                        selectedNoteIds.clear()
+                        selectedNoteIds.addAll(filteredNotes.map { it.id })
+                    },
+                    onShare = {
+                        val selectedNotes = notes.filter { it.id in selectedNoteIds }
+                        shareText(
+                            context,
+                            "مشاركة الملاحظات المحددة",
+                            selectedNotes.joinToString("\n\n") { "${it.title}\n${it.content}" }
+                        )
+                    },
+                    onDelete = {
+                        notesPendingDeletion = notes.filter { it.id in selectedNoteIds }
+                    },
+                    onCancel = {
+                        selectedNoteIds.clear()
+                        selectionMode = false
+                    }
+                )
+            }
 
             Column(modifier = Modifier.padding(horizontal = 16.dp)) {
                 // Search Input matching screenshot ("ابحث في الملاحظات...")
@@ -182,7 +232,12 @@ fun NotesScreen(
                         items(filteredNotes) { note ->
                             NoteCardItem(
                                 note = note,
-                                onClick = { selectedNoteForEdit = note },
+                                selectionMode = selectionMode,
+                                isSelected = note.id in selectedNoteIds,
+                                onToggleSelected = {
+                                    if (!selectedNoteIds.remove(note.id)) selectedNoteIds.add(note.id)
+                                },
+                                onClick = { if (!selectionMode) selectedNoteForEdit = note },
                                 onTogglePin = { viewModel.togglePinNote(note) },
                                 onDelete = { viewModel.deleteNote(note) }
                             )
@@ -195,6 +250,20 @@ fun NotesScreen(
                 }
             }
         }
+    }
+
+    notesPendingDeletion.takeIf { it.isNotEmpty() }?.let { selectedNotes ->
+        ConfirmDeleteDialog(
+            title = "حذف الملاحظات المحددة",
+            message = "سيتم حذف ${selectedNotes.size} ملاحظات نهائيًا.",
+            onDismiss = { notesPendingDeletion = emptyList() },
+            onConfirm = {
+                selectedNotes.forEach(viewModel::deleteNote)
+                selectedNoteIds.clear()
+                selectionMode = false
+                notesPendingDeletion = emptyList()
+            }
+        )
     }
 
     if (showAddDialog) {
@@ -229,6 +298,9 @@ fun NotesScreen(
 @Composable
 fun NoteCardItem(
     note: CourseNoteEntity,
+    selectionMode: Boolean,
+    isSelected: Boolean,
+    onToggleSelected: () -> Unit,
     onClick: () -> Unit,
     onTogglePin: () -> Unit,
     onDelete: () -> Unit
@@ -237,7 +309,7 @@ fun NoteCardItem(
         modifier = Modifier
             .fillMaxWidth()
             .clip(RoundedCornerShape(16.dp))
-            .clickable { onClick() }
+            .clickable { if (selectionMode) onToggleSelected() else onClick() }
             .testTag("note_item_${note.id}"),
         shape = RoundedCornerShape(16.dp),
         colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant)
@@ -253,6 +325,10 @@ fun NoteCardItem(
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 Row(verticalAlignment = Alignment.CenterVertically) {
+                    if (selectionMode) {
+                        BulkSelectionIndicator(isSelected)
+                        Spacer(modifier = Modifier.width(6.dp))
+                    }
                     if (note.isPinned) {
                         Icon(
                             imageVector = Icons.Default.PushPin,
@@ -270,7 +346,7 @@ fun NoteCardItem(
                     )
                 }
 
-                Row(verticalAlignment = Alignment.CenterVertically) {
+                if (!selectionMode) Row(verticalAlignment = Alignment.CenterVertically) {
                     IconButton(onClick = onTogglePin, modifier = Modifier.size(28.dp)) {
                         Icon(
                             imageVector = Icons.Default.PushPin,

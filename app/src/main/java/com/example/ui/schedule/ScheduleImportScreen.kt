@@ -52,17 +52,7 @@ fun ScheduleImportScreen(
 ) {
     BackHandler { onBack() }
 
-    var rawText by remember {
-        mutableStateOf(
-            """
-الأحد: هندسة البرمجيات من 08:00 إلى 09:00 قاعة H2
-الإثنين: الرياضيات المتقطعة 09:00 - 10:30 H1
-الثلاثاء: معمل قواعد البيانات من 10:00 إلى 12:00 Lab6
-الأربعاء: الذكاء الاصطناعي 09:00 - 11:00 H3
-الخميس: لغة إنجليزية 11:00 - 13:00 C1
-            """.trimIndent()
-        )
-    }
+    var rawText by remember { mutableStateOf("") }
 
     val extractedList = remember { mutableStateListOf<ParsedSessionDraft>() }
     var parseError by remember { mutableStateOf<String?>(null) }

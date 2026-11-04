@@ -24,6 +24,7 @@ import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.CheckCircle
+import androidx.compose.material.icons.filled.Checklist
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Description
 import androidx.compose.material.icons.filled.Edit
@@ -47,6 +48,7 @@ import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.mutableDoubleStateOf
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
@@ -57,6 +59,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
@@ -68,8 +71,13 @@ import com.example.data.model.CourseNoteEntity
 import com.example.data.model.LectureEntity
 import com.example.ui.JimViewModel
 import com.example.ui.components.ConfirmDeleteDialog
+import com.example.ui.components.BulkSelectionActions
+import com.example.ui.components.BulkSelectionIndicator
 import com.example.ui.components.CourseIconBadge
 import com.example.ui.components.PriorityBadge
+import com.example.ui.library.rememberDocumentImportLauncher
+import com.example.ui.library.shareDocuments
+import com.example.ui.library.shareText
 import com.example.ui.theme.JimCyanAccent
 import com.example.ui.theme.JimPrimaryBlue
 
@@ -112,6 +120,53 @@ fun CourseWorkspaceScreen(
     val courseDocs = documents.filter { it.courseId == courseId }
 
     var selectedTab by remember { mutableStateOf(WorkspaceTab.GRADES) }
+    val selectedItemIds = remember { mutableStateListOf<Long>() }
+    var selectionMode by remember { mutableStateOf(false) }
+    var showBulkDeleteDialog by remember { mutableStateOf(false) }
+    val context = LocalContext.current
+    val importCourseDocument = rememberDocumentImportLauncher(viewModel, courseId)
+
+    fun visibleIds(): List<Long> = when (selectedTab) {
+        WorkspaceTab.GRADES -> courseAssessments.map { it.id }
+        WorkspaceTab.LECTURES -> courseLectures.map { it.id }
+        WorkspaceTab.NOTES -> courseNotes.map { it.id }
+        WorkspaceTab.ASSIGNMENTS -> courseAssignments.map { it.id }
+        WorkspaceTab.FILES -> courseDocs.map { it.id }
+        WorkspaceTab.INFO -> emptyList()
+    }
+
+    fun deleteSelectedItems() {
+        when (selectedTab) {
+            WorkspaceTab.GRADES -> courseAssessments.filter { it.id in selectedItemIds }.forEach(viewModel::deleteAssessment)
+            WorkspaceTab.LECTURES -> courseLectures.filter { it.id in selectedItemIds }.forEach(viewModel::deleteLecture)
+            WorkspaceTab.NOTES -> courseNotes.filter { it.id in selectedItemIds }.forEach(viewModel::deleteNote)
+            WorkspaceTab.ASSIGNMENTS -> courseAssignments.filter { it.id in selectedItemIds }.forEach(viewModel::deleteAssignment)
+            WorkspaceTab.FILES -> courseDocs.filter { it.id in selectedItemIds }.forEach(viewModel::deleteDocument)
+            WorkspaceTab.INFO -> Unit
+        }
+        selectedItemIds.clear()
+        selectionMode = false
+    }
+
+    fun shareSelectedItems() {
+        if (selectedTab == WorkspaceTab.FILES) {
+            shareDocuments(context, courseDocs.filter { it.id in selectedItemIds })
+            return
+        }
+
+        val selectedText = when (selectedTab) {
+            WorkspaceTab.GRADES -> courseAssessments.filter { it.id in selectedItemIds }
+                .joinToString("\n\n") { "${it.name}\n${it.earnedScore} / ${it.maxScore}\n${it.date}" }
+            WorkspaceTab.LECTURES -> courseLectures.filter { it.id in selectedItemIds }
+                .joinToString("\n\n") { "المحاضرة ${it.lectureNumber}: ${it.title}\n${it.summary}" }
+            WorkspaceTab.NOTES -> courseNotes.filter { it.id in selectedItemIds }
+                .joinToString("\n\n") { "${it.title}\n${it.content}" }
+            WorkspaceTab.ASSIGNMENTS -> courseAssignments.filter { it.id in selectedItemIds }
+                .joinToString("\n\n") { "${it.title}\n${it.description}\n${it.dueDate}" }
+            WorkspaceTab.FILES, WorkspaceTab.INFO -> ""
+        }
+        shareText(context, "مشاركة ${selectedTab.title} المحددة", selectedText)
+    }
 
     // Dialog states
     var showAddAssessmentDialog by remember { mutableStateOf(false) }
@@ -169,7 +224,23 @@ fun CourseWorkspaceScreen(
                 )
             }
 
-            CourseIconBadge(iconKey = course.iconKey, colorHex = course.colorHex, size = 40.dp)
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                CourseIconBadge(iconKey = course.iconKey, colorHex = course.colorHex, size = 40.dp)
+                if (selectedTab != WorkspaceTab.INFO) {
+                    IconButton(
+                        onClick = {
+                            selectionMode = !selectionMode
+                            selectedItemIds.clear()
+                        }
+                    ) {
+                        Icon(
+                            Icons.Default.Checklist,
+                            contentDescription = "تحديد عناصر المادة",
+                            tint = if (selectionMode) JimPrimaryBlue else MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
+                }
+            }
         }
 
         // Header Card with Grade / Progress (Matching screenshot)
@@ -255,7 +326,11 @@ fun CourseWorkspaceScreen(
             WorkspaceTab.values().forEach { tab ->
                 Tab(
                     selected = selectedTab == tab,
-                    onClick = { selectedTab = tab },
+                    onClick = {
+                        selectedTab = tab
+                        selectedItemIds.clear()
+                        selectionMode = false
+                    },
                     text = {
                         Text(
                             text = tab.title,
@@ -267,6 +342,22 @@ fun CourseWorkspaceScreen(
             }
         }
 
+        if (selectionMode) {
+            BulkSelectionActions(
+                selectedCount = selectedItemIds.size,
+                onSelectAll = {
+                    selectedItemIds.clear()
+                    selectedItemIds.addAll(visibleIds())
+                },
+                onDelete = { showBulkDeleteDialog = true },
+                onShare = ::shareSelectedItems,
+                onCancel = {
+                    selectedItemIds.clear()
+                    selectionMode = false
+                }
+            )
+        }
+
         Spacer(modifier = Modifier.height(12.dp))
 
         // Tab Content
@@ -274,34 +365,72 @@ fun CourseWorkspaceScreen(
             when (selectedTab) {
                 WorkspaceTab.GRADES -> GradesTabContent(
                     assessments = courseAssessments,
+                    selectionMode = selectionMode,
+                    selectedIds = selectedItemIds,
+                    onToggleSelection = { id ->
+                        if (!selectedItemIds.remove(id)) selectedItemIds.add(id)
+                    },
                     onAddClick = { showAddAssessmentDialog = true },
                     onDelete = { viewModel.deleteAssessment(it) }
                 )
                 WorkspaceTab.LECTURES -> LecturesTabContent(
                     lectures = courseLectures,
+                    selectionMode = selectionMode,
+                    selectedIds = selectedItemIds,
+                    onToggleSelection = { id ->
+                        if (!selectedItemIds.remove(id)) selectedItemIds.add(id)
+                    },
                     onAddClick = { showAddLectureDialog = true },
                     onToggleReviewed = { viewModel.toggleLectureReviewed(it) },
                     onDelete = { viewModel.deleteLecture(it) }
                 )
                 WorkspaceTab.NOTES -> CourseNotesTabContent(
                     notes = courseNotes,
+                    selectionMode = selectionMode,
+                    selectedIds = selectedItemIds,
+                    onToggleSelection = { id ->
+                        if (!selectedItemIds.remove(id)) selectedItemIds.add(id)
+                    },
                     onAddClick = { showAddNoteDialog = true },
                     onDelete = { viewModel.deleteNote(it) }
                 )
                 WorkspaceTab.ASSIGNMENTS -> AssignmentsTabContent(
                     assignments = courseAssignments,
+                    selectionMode = selectionMode,
+                    selectedIds = selectedItemIds,
+                    onToggleSelection = { id ->
+                        if (!selectedItemIds.remove(id)) selectedItemIds.add(id)
+                    },
                     onAddClick = { showAddAssignmentDialog = true },
                     onToggle = { viewModel.toggleAssignmentStatus(it) },
                     onDelete = { viewModel.deleteAssignment(it) }
                 )
                 WorkspaceTab.FILES -> CourseFilesTabContent(
                     documents = courseDocs,
+                    selectionMode = selectionMode,
+                    selectedIds = selectedItemIds,
+                    onToggleSelection = { id ->
+                        if (!selectedItemIds.remove(id)) selectedItemIds.add(id)
+                    },
+                    onImportFile = importCourseDocument,
                     onOpenFile = onOpenFile,
                     onDelete = { viewModel.deleteDocument(it) }
                 )
                 WorkspaceTab.INFO -> CourseInfoTabContent(course = course)
             }
         }
+    }
+
+    if (showBulkDeleteDialog) {
+        ConfirmDeleteDialog(
+            title = "حذف العناصر المحددة",
+            message = "سيتم حذف ${selectedItemIds.size} عناصر من ${selectedTab.title}. لا يمكن التراجع عن ذلك.",
+            onDismiss = { showBulkDeleteDialog = false },
+            onConfirm = {
+                deleteSelectedItems()
+                showBulkDeleteDialog = false
+            }
+        )
     }
 
     if (showAddAssessmentDialog) {
@@ -350,6 +479,9 @@ fun CourseWorkspaceScreen(
 @Composable
 fun GradesTabContent(
     assessments: List<AssessmentEntity>,
+    selectionMode: Boolean,
+    selectedIds: List<Long>,
+    onToggleSelection: (Long) -> Unit,
     onAddClick: () -> Unit,
     onDelete: (AssessmentEntity) -> Unit
 ) {
@@ -390,7 +522,9 @@ fun GradesTabContent(
         } else {
             items(assessments) { item ->
                 Card(
-                    modifier = Modifier.fillMaxWidth(),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clickable { if (selectionMode) onToggleSelection(item.id) },
                     shape = RoundedCornerShape(14.dp),
                     colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant)
                 ) {
@@ -401,6 +535,9 @@ fun GradesTabContent(
                         horizontalArrangement = Arrangement.SpaceBetween,
                         verticalAlignment = Alignment.CenterVertically
                     ) {
+                        if (selectionMode) {
+                            BulkSelectionIndicator(item.id in selectedIds)
+                        }
                         Column {
                             Text(
                                 text = item.name,
@@ -425,13 +562,15 @@ fun GradesTabContent(
                                 color = MaterialTheme.colorScheme.primary
                             )
                             Spacer(modifier = Modifier.width(8.dp))
-                            IconButton(onClick = { onDelete(item) }) {
-                                Icon(
-                                    imageVector = Icons.Default.Delete,
-                                    contentDescription = "حذف",
-                                    tint = MaterialTheme.colorScheme.error.copy(alpha = 0.7f),
-                                    modifier = Modifier.size(20.dp)
-                                )
+                            if (!selectionMode) {
+                                IconButton(onClick = { onDelete(item) }) {
+                                    Icon(
+                                        imageVector = Icons.Default.Delete,
+                                        contentDescription = "حذف",
+                                        tint = MaterialTheme.colorScheme.error.copy(alpha = 0.7f),
+                                        modifier = Modifier.size(20.dp)
+                                    )
+                                }
                             }
                         }
                     }
@@ -444,6 +583,9 @@ fun GradesTabContent(
 @Composable
 fun LecturesTabContent(
     lectures: List<LectureEntity>,
+    selectionMode: Boolean,
+    selectedIds: List<Long>,
+    onToggleSelection: (Long) -> Unit,
     onAddClick: () -> Unit,
     onToggleReviewed: (LectureEntity) -> Unit,
     onDelete: (LectureEntity) -> Unit
@@ -486,7 +628,9 @@ fun LecturesTabContent(
         } else {
             items(lectures) { lecture ->
                 Card(
-                    modifier = Modifier.fillMaxWidth(),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clickable { if (selectionMode) onToggleSelection(lecture.id) },
                     shape = RoundedCornerShape(14.dp),
                     colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant)
                 ) {
@@ -500,6 +644,9 @@ fun LecturesTabContent(
                             horizontalArrangement = Arrangement.SpaceBetween,
                             verticalAlignment = Alignment.CenterVertically
                         ) {
+                            if (selectionMode) {
+                                BulkSelectionIndicator(lecture.id in selectedIds)
+                            }
                             Text(
                                 text = "المحاضرة ${lecture.lectureNumber}: ${lecture.title}",
                                 style = MaterialTheme.typography.titleSmall,
@@ -507,14 +654,14 @@ fun LecturesTabContent(
                                 modifier = Modifier.weight(1f)
                             )
                             Row {
-                                IconButton(onClick = { onToggleReviewed(lecture) }) {
+                                if (!selectionMode) IconButton(onClick = { onToggleReviewed(lecture) }) {
                                     Icon(
                                         imageVector = if (lecture.isReviewed) Icons.Default.CheckCircle else Icons.Default.RadioButtonUnchecked,
                                         contentDescription = "تمت المراجعة",
                                         tint = if (lecture.isReviewed) Color(0xFF10B981) else MaterialTheme.colorScheme.onSurfaceVariant
                                     )
                                 }
-                                IconButton(onClick = { lecturePendingDeletion = lecture }) {
+                                if (!selectionMode) IconButton(onClick = { lecturePendingDeletion = lecture }) {
                                     Icon(
                                         imageVector = Icons.Default.Delete,
                                         contentDescription = "حذف المحاضرة",
@@ -564,6 +711,9 @@ fun LecturesTabContent(
 @Composable
 fun CourseNotesTabContent(
     notes: List<CourseNoteEntity>,
+    selectionMode: Boolean,
+    selectedIds: List<Long>,
+    onToggleSelection: (Long) -> Unit,
     onAddClick: () -> Unit,
     onDelete: (CourseNoteEntity) -> Unit
 ) {
@@ -604,7 +754,9 @@ fun CourseNotesTabContent(
         } else {
             items(notes) { note ->
                 Card(
-                    modifier = Modifier.fillMaxWidth(),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clickable { if (selectionMode) onToggleSelection(note.id) },
                     shape = RoundedCornerShape(14.dp),
                     colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant)
                 ) {
@@ -617,12 +769,15 @@ fun CourseNotesTabContent(
                             modifier = Modifier.fillMaxWidth(),
                             horizontalArrangement = Arrangement.SpaceBetween
                         ) {
+                            if (selectionMode) {
+                                BulkSelectionIndicator(note.id in selectedIds)
+                            }
                             Text(
                                 text = note.title,
                                 style = MaterialTheme.typography.titleSmall,
                                 fontWeight = FontWeight.Bold
                             )
-                            IconButton(onClick = { onDelete(note) }, modifier = Modifier.size(24.dp)) {
+                            if (!selectionMode) IconButton(onClick = { onDelete(note) }, modifier = Modifier.size(24.dp)) {
                                 Icon(
                                     imageVector = Icons.Default.Delete,
                                     contentDescription = "حذف",
@@ -646,6 +801,9 @@ fun CourseNotesTabContent(
 @Composable
 fun AssignmentsTabContent(
     assignments: List<AssignmentEntity>,
+    selectionMode: Boolean,
+    selectedIds: List<Long>,
+    onToggleSelection: (Long) -> Unit,
     onAddClick: () -> Unit,
     onToggle: (AssignmentEntity) -> Unit,
     onDelete: (AssignmentEntity) -> Unit
@@ -688,7 +846,9 @@ fun AssignmentsTabContent(
         } else {
             items(assignments) { assignment ->
                 Card(
-                    modifier = Modifier.fillMaxWidth(),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clickable { if (selectionMode) onToggleSelection(assignment.id) },
                     shape = RoundedCornerShape(14.dp),
                     colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant)
                 ) {
@@ -698,12 +858,16 @@ fun AssignmentsTabContent(
                             .padding(14.dp),
                         verticalAlignment = Alignment.CenterVertically
                     ) {
-                        IconButton(onClick = { onToggle(assignment) }) {
-                            Icon(
-                                imageVector = if (assignment.status == "COMPLETED") Icons.Default.CheckCircle else Icons.Default.RadioButtonUnchecked,
-                                contentDescription = null,
-                                tint = if (assignment.status == "COMPLETED") Color(0xFF10B981) else MaterialTheme.colorScheme.onSurfaceVariant
-                            )
+                        if (selectionMode) {
+                            BulkSelectionIndicator(assignment.id in selectedIds)
+                        } else {
+                            IconButton(onClick = { onToggle(assignment) }) {
+                                Icon(
+                                    imageVector = if (assignment.status == "COMPLETED") Icons.Default.CheckCircle else Icons.Default.RadioButtonUnchecked,
+                                    contentDescription = null,
+                                    tint = if (assignment.status == "COMPLETED") Color(0xFF10B981) else MaterialTheme.colorScheme.onSurfaceVariant
+                                )
+                            }
                         }
                         Column(modifier = Modifier.weight(1f)) {
                             Text(
@@ -718,7 +882,7 @@ fun AssignmentsTabContent(
                             )
                         }
                         PriorityBadge(priority = assignment.priority)
-                        IconButton(onClick = { assignmentPendingDeletion = assignment }) {
+                        if (!selectionMode) IconButton(onClick = { assignmentPendingDeletion = assignment }) {
                             Icon(
                                 imageVector = Icons.Default.Delete,
                                 contentDescription = "حذف المهمة",
@@ -747,6 +911,10 @@ fun AssignmentsTabContent(
 @Composable
 fun CourseFilesTabContent(
     documents: List<com.example.data.model.LibraryDocumentEntity>,
+    selectionMode: Boolean,
+    selectedIds: List<Long>,
+    onToggleSelection: (Long) -> Unit,
+    onImportFile: () -> Unit,
     onOpenFile: (Long) -> Unit,
     onDelete: (com.example.data.model.LibraryDocumentEntity) -> Unit
 ) {
@@ -760,11 +928,20 @@ fun CourseFilesTabContent(
         verticalArrangement = Arrangement.spacedBy(10.dp)
     ) {
         item {
-            Text(
-                text = "ملفات وكتب المادة",
-                style = MaterialTheme.typography.titleMedium,
-                fontWeight = FontWeight.Bold
-            )
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Text(
+                    text = "ملفات وكتب المادة",
+                    style = MaterialTheme.typography.titleMedium,
+                    fontWeight = FontWeight.Bold
+                )
+                IconButton(onClick = onImportFile, modifier = Modifier.testTag("import_course_file_button")) {
+                    Icon(Icons.Default.Add, contentDescription = "إضافة ملف للمادة")
+                }
+            }
         }
 
         if (documents.isEmpty()) {
@@ -781,7 +958,9 @@ fun CourseFilesTabContent(
                 Card(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .clickable { onOpenFile(doc.id) },
+                        .clickable {
+                            if (selectionMode) onToggleSelection(doc.id) else onOpenFile(doc.id)
+                        },
                     shape = RoundedCornerShape(14.dp),
                     colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant)
                 ) {
@@ -791,6 +970,9 @@ fun CourseFilesTabContent(
                             .padding(14.dp),
                         verticalAlignment = Alignment.CenterVertically
                     ) {
+                        if (selectionMode) {
+                            BulkSelectionIndicator(doc.id in selectedIds)
+                        }
                         Icon(
                             imageVector = Icons.Default.Description,
                             contentDescription = null,
@@ -810,12 +992,14 @@ fun CourseFilesTabContent(
                                 color = MaterialTheme.colorScheme.onSurfaceVariant
                             )
                         }
-                        IconButton(onClick = { documentPendingDeletion = doc }) {
-                            Icon(
-                                imageVector = Icons.Default.Delete,
-                                contentDescription = "حذف الملف",
-                                tint = MaterialTheme.colorScheme.error
-                            )
+                        if (!selectionMode) {
+                            IconButton(onClick = { documentPendingDeletion = doc }) {
+                                Icon(
+                                    imageVector = Icons.Default.Delete,
+                                    contentDescription = "حذف الملف",
+                                    tint = MaterialTheme.colorScheme.error
+                                )
+                            }
                         }
                     }
                 }
@@ -873,8 +1057,8 @@ fun AddAssessmentDialog(
 ) {
     var name by remember { mutableStateOf("") }
     var earned by remember { mutableStateOf("") }
-    var max by remember { mutableStateOf("20") }
-    var date by remember { mutableStateOf("2025/04/10") }
+    var max by remember { mutableStateOf("") }
+    var date by remember { mutableStateOf("") }
     var notes by remember { mutableStateOf("") }
 
     AlertDialog(
@@ -882,7 +1066,7 @@ fun AddAssessmentDialog(
         title = { Text(text = "إضافة تقييم جديد") },
         text = {
             Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                OutlinedTextField(value = name, onValueChange = { name = it }, label = { Text("اسم التقييم (مثال: النصفي)") }, modifier = Modifier.fillMaxWidth())
+                OutlinedTextField(value = name, onValueChange = { name = it }, label = { Text("اسم التقييم") }, modifier = Modifier.fillMaxWidth())
                 Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     OutlinedTextField(value = earned, onValueChange = { earned = it }, label = { Text("الدرجة المحرزة") }, modifier = Modifier.weight(1f))
                     OutlinedTextField(value = max, onValueChange = { max = it }, label = { Text("الدرجة العظمى") }, modifier = Modifier.weight(1f))
@@ -894,11 +1078,15 @@ fun AddAssessmentDialog(
         confirmButton = {
             Button(
                 onClick = {
-                    val earnedVal = earned.toDoubleOrNull() ?: 0.0
-                    val maxVal = max.toDoubleOrNull() ?: 20.0
-                    onConfirm(name, earnedVal, maxVal, 0.0, date, notes)
+                    val earnedVal = earned.toDoubleOrNull()
+                    val maxVal = max.toDoubleOrNull()
+                    if (earnedVal != null && maxVal != null && maxVal > 0) {
+                        onConfirm(name, earnedVal, maxVal, 0.0, date, notes)
+                    }
                 },
-                enabled = name.isNotBlank()
+                enabled = name.isNotBlank() &&
+                    earned.toDoubleOrNull() != null &&
+                    (max.toDoubleOrNull() ?: 0.0) > 0
             ) {
                 Text("حفظ")
             }
@@ -917,7 +1105,7 @@ fun AddLectureDialog(
 ) {
     var title by remember { mutableStateOf("") }
     var num by remember { mutableIntStateOf(nextNumber) }
-    var date by remember { mutableStateOf("2025/04/12") }
+    var date by remember { mutableStateOf("") }
     var summary by remember { mutableStateOf("") }
 
     AlertDialog(
@@ -952,7 +1140,7 @@ fun AddAssignmentDialog(
 ) {
     var title by remember { mutableStateOf("") }
     var desc by remember { mutableStateOf("") }
-    var dueDate by remember { mutableStateOf("2025/04/20") }
+    var dueDate by remember { mutableStateOf("") }
     var priority by remember { mutableStateOf("متوسط") }
 
     AlertDialog(
