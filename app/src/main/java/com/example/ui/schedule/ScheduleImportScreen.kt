@@ -271,7 +271,12 @@ fun ScheduleImportScreen(
                                 isImporting = false
                                 result.fold(
                                     onSuccess = onBack,
-                                    onFailure = {
+                                    onFailure = { error ->
+                                        android.util.Log.e(
+                                            "ScheduleImportScreen",
+                                            "Failed to replace timetable",
+                                            error
+                                        )
                                         importError = "تعذر استبدال الجدول. بقي الجدول السابق كما هو؛ حاول مرة أخرى."
                                     }
                                 )
