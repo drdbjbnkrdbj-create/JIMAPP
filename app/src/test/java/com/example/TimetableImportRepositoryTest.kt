@@ -22,6 +22,65 @@ import org.robolectric.annotation.Config
 @Config(sdk = [36])
 class TimetableImportRepositoryTest {
     @Test
+    fun manuallyEnteredCourseNameCreatesCourseAndPersistsSchedule() = runBlocking {
+        val context = ApplicationProvider.getApplicationContext<Context>()
+        val databaseName = "manual-timetable-test.db"
+        context.deleteDatabase(databaseName)
+        var database = openDatabase(context, databaseName)
+
+        try {
+            val repository = JimRepository(database.jimDao(), database)
+            repository.addSessionForCourseName(
+                courseName = "فيزياء",
+                dayOfWeek = 3,
+                startTime = "10:00",
+                endTime = "11:00",
+                classroom = "قاعة 2",
+                sessionType = "محاضرة"
+            )
+            repository.addSessionForCourseName(
+                courseName = "فيزياء",
+                dayOfWeek = 5,
+                startTime = "12:00",
+                endTime = "13:00",
+                classroom = "قاعة 3",
+                sessionType = "معمل"
+            )
+
+            val courses = database.jimDao().getAllCourses()
+            val savedSessions = repository.sessionsFlow.first()
+            assertEquals(1, courses.size)
+            assertEquals("فيزياء", courses.single().name)
+            assertEquals(2, savedSessions.size)
+            assertEquals(courses.single().id, savedSessions[0].courseId)
+            assertEquals(listOf(3, 5), savedSessions.map { it.dayOfWeek })
+            assertEquals(listOf("قاعة 2", "قاعة 3"), savedSessions.map { it.classroom })
+
+            var blankNameRejected = false
+            try {
+                repository.addSessionForCourseName(
+                    courseName = " ",
+                    dayOfWeek = 1,
+                    startTime = "08:00",
+                    endTime = "09:00",
+                    classroom = "",
+                    sessionType = "محاضرة"
+                )
+            } catch (_: IllegalArgumentException) {
+                blankNameRejected = true
+            }
+            assertTrue(blankNameRejected)
+
+            database.close()
+            database = openDatabase(context, databaseName)
+            assertEquals(2, database.jimDao().getAllSessionsFlow().first().size)
+        } finally {
+            database.close()
+            context.deleteDatabase(databaseName)
+        }
+    }
+
+    @Test
     fun replacesSessionsAndKeepsImportedScheduleAfterDatabaseReopen() = runBlocking {
         val context = ApplicationProvider.getApplicationContext<Context>()
         val databaseName = "timetable-import-test.db"

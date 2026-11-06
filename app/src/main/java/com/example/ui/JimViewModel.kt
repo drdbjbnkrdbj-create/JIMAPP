@@ -410,6 +410,34 @@ class JimViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
+    fun addSession(
+        courseName: String,
+        dayOfWeek: Int,
+        startTime: String,
+        endTime: String,
+        classroom: String,
+        sessionType: String,
+        onResult: (Result<Unit>) -> Unit
+    ) {
+        viewModelScope.launch {
+            try {
+                repository.addSessionForCourseName(
+                    courseName = courseName,
+                    dayOfWeek = dayOfWeek,
+                    startTime = startTime,
+                    endTime = endTime,
+                    classroom = classroom,
+                    sessionType = sessionType
+                )
+                onResult(Result.success(Unit))
+            } catch (error: Exception) {
+                if (error is CancellationException) throw error
+                Log.e("JimViewModel", "Failed to add timetable session", error)
+                onResult(Result.failure(error))
+            }
+        }
+    }
+
     fun deleteSession(session: TimetableSessionEntity) {
         viewModelScope.launch {
             repository.deleteSession(session)

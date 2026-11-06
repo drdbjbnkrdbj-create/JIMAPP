@@ -15,6 +15,7 @@ import com.example.data.model.TimetableSessionEntity
 import com.example.data.model.TimetableImportEntry
 import java.text.Normalizer
 import java.util.Locale
+import java.util.UUID
 import kotlinx.coroutines.flow.Flow
 import org.json.JSONArray
 import org.json.JSONObject
@@ -228,6 +229,43 @@ class JimRepository(
 
     // Timetable CRUD
     suspend fun addSession(session: TimetableSessionEntity): Long = dao.insertSession(session)
+    suspend fun addSessionForCourseName(
+        courseName: String,
+        dayOfWeek: Int,
+        startTime: String,
+        endTime: String,
+        classroom: String,
+        sessionType: String
+    ) {
+        val name = courseName.trim()
+        require(name.isNotEmpty()) { "Course name cannot be empty" }
+        require(dayOfWeek in 1..5) { "Day of week must be between 1 and 5" }
+        require(isValidTimeRange(startTime, endTime)) { "Session time range is invalid" }
+
+        database.withTransaction {
+            val courses = dao.getAllCourses()
+            val courseKey = normalizeCourseName(name)
+            val course = courses.firstOrNull { normalizeCourseName(it.name) == courseKey }
+                ?: CourseEntity(
+                    name = name,
+                    code = "MAN-${UUID.randomUUID().toString().take(8).uppercase(Locale.ROOT)}"
+                ).let { newCourse ->
+                    newCourse.copy(id = dao.insertCourse(newCourse))
+                }
+
+            dao.insertSession(
+                TimetableSessionEntity(
+                    courseId = course.id,
+                    dayOfWeek = dayOfWeek,
+                    startTime = startTime,
+                    endTime = endTime,
+                    classroom = classroom.trim(),
+                    sessionType = sessionType
+                )
+            )
+        }
+    }
+
     suspend fun addSessions(sessions: List<TimetableSessionEntity>) = dao.insertSessions(sessions)
     suspend fun updateSession(session: TimetableSessionEntity) = dao.updateSession(session)
     suspend fun deleteSession(session: TimetableSessionEntity) = dao.deleteSession(session)

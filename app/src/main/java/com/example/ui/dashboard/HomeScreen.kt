@@ -61,6 +61,7 @@ import com.example.ui.components.ConfirmDeleteDialog
 import com.example.ui.components.GpaProgressCard
 import com.example.ui.components.PriorityBadge
 import com.example.ui.theme.JimPrimaryBlue
+import java.util.Calendar
 
 @Composable
 fun HomeScreen(
@@ -76,9 +77,14 @@ fun HomeScreen(
     val assignments by viewModel.assignments.collectAsState()
     val exams by viewModel.exams.collectAsState()
     var examToDelete by remember { mutableStateOf<ExamEntity?>(null) }
+    val greeting = profile.name.trim()
+        .substringBefore(' ')
+        .takeIf { it.isNotBlank() }
+        ?.let { "مرحباً، $it" }
+        ?: "مرحباً بك"
 
-    // Filter today's lectures (Sunday = 1 in sample data)
-    val todaySessions = sessions.filter { it.dayOfWeek == 1 }
+    val todayDay = Calendar.getInstance().get(Calendar.DAY_OF_WEEK)
+    val todaySessions = sessions.filter { it.dayOfWeek == todayDay }
 
     LazyColumn(
         modifier = modifier
@@ -107,7 +113,7 @@ fun HomeScreen(
                         contentAlignment = Alignment.Center
                     ) {
                         Text(
-                            text = profile.name.take(1),
+                            text = profile.name.trim().firstOrNull()?.toString() ?: "ج",
                             style = MaterialTheme.typography.titleMedium,
                             fontWeight = FontWeight.Bold,
                             color = JimPrimaryBlue
@@ -116,7 +122,7 @@ fun HomeScreen(
                     Spacer(modifier = Modifier.width(12.dp))
                     Column {
                         Text(
-                            text = "مرحباً، ${profile.name.split(" ").firstOrNull() ?: profile.name}",
+                            text = greeting,
                             style = MaterialTheme.typography.titleLarge,
                             fontWeight = FontWeight.Bold,
                             color = MaterialTheme.colorScheme.onBackground

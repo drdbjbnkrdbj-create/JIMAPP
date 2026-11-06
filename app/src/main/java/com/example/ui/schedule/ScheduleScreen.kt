@@ -11,9 +11,12 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
@@ -42,7 +45,6 @@ import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.mutableIntStateOf
-import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
@@ -310,8 +312,8 @@ fun ScheduleScreen(
             courses = courses,
             initialDay = selectedDay,
             onDismiss = { showAddSessionDialog = false },
-            onConfirm = { courseId, day, start, end, room, type, onResult ->
-                viewModel.addSession(courseId, day, start, end, room, type) { result ->
+            onConfirm = { courseName, day, start, end, room, type, onResult ->
+                viewModel.addSession(courseName, day, start, end, room, type) { result ->
                     onResult(result)
                     if (result.isSuccess) showAddSessionDialog = false
                 }
@@ -411,19 +413,10 @@ fun AddSessionDialog(
     courses: List<CourseEntity>,
     initialDay: Int,
     onDismiss: () -> Unit,
-    onConfirm: (Long, Int, String, String, String, String, (Result<Unit>) -> Unit) -> Unit
+    onConfirm: (String, Int, String, String, String, String, (Result<Unit>) -> Unit) -> Unit
 ) {
-    if (courses.isEmpty()) {
-        AlertDialog(
-            onDismissRequest = onDismiss,
-            title = { Text("تنبيه") },
-            text = { Text("يرجى إضافة مواد دراسية أولاً لتتمكن من جدولتها.") },
-            confirmButton = { Button(onClick = onDismiss) { Text("حسناً") } }
-        )
-        return
-    }
-
-    var selectedCourseId by remember { mutableLongStateOf(courses.first().id) }
+    var courseName by remember { mutableStateOf("") }
+    var courseMenuExpanded by remember { mutableStateOf(false) }
     var selectedDay by remember { mutableIntStateOf(initialDay) }
     var startTime by remember { mutableStateOf("") }
     var endTime by remember { mutableStateOf("") }
@@ -432,43 +425,96 @@ fun AddSessionDialog(
     var saveError by remember { mutableStateOf<String?>(null) }
     var isSaving by remember { mutableStateOf(false) }
     val validTimeRange = com.example.ui.schedule.ScheduleTextParser.hasValidTimeRange(startTime, endTime)
+    val matchingCourses = courses.filter {
+        courseName.isNotBlank() &&
+            (it.name.contains(courseName.trim(), ignoreCase = true) ||
+                it.code.contains(courseName.trim(), ignoreCase = true))
+    }
 
     val days = listOf(1 to "الأحد", 2 to "الإثنين", 3 to "الثلاثاء", 4 to "الأربعاء", 5 to "الخميس")
 
     AlertDialog(
         onDismissRequest = onDismiss,
-        title = { Text("إضافة حصة دراسية للجدول", fontWeight = FontWeight.Bold) },
+        title = {
+            Text(
+                "إضافة محاضرة للجدول",
+                fontWeight = FontWeight.Bold,
+                color = MaterialTheme.colorScheme.onSurface
+            )
+        },
         text = {
-            Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                Text("المادة الدراسية:")
-                Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(4.dp)) {
-                    courses.take(3).forEach { c ->
-                        val isSel = selectedCourseId == c.id
-                        Button(
-                            onClick = { selectedCourseId = c.id },
-                            colors = androidx.compose.material3.ButtonDefaults.buttonColors(
-                                containerColor = if (isSel) JimPrimaryBlue else MaterialTheme.colorScheme.surfaceVariant
-                            ),
-                            modifier = Modifier.weight(1f)
-                        ) {
-                            Text(c.code, fontSize = 11.sp, color = if (isSel) Color.White else MaterialTheme.colorScheme.onSurface)
+            Column(
+                modifier = Modifier.verticalScroll(rememberScrollState()),
+                verticalArrangement = Arrangement.spacedBy(12.dp)
+            ) {
+                ExposedDropdownMenuBox(
+                    expanded = courseMenuExpanded && matchingCourses.isNotEmpty(),
+                    onExpandedChange = { courseMenuExpanded = it }
+                ) {
+                    OutlinedTextField(
+                        value = courseName,
+                        onValueChange = {
+                            courseName = it
+                            courseMenuExpanded = true
+                        },
+                        label = { Text("اسم المادة") },
+                        placeholder = { Text("اكتب اسم المادة أو اخترها") },
+                        singleLine = true,
+                        trailingIcon = {
+                            ExposedDropdownMenuDefaults.TrailingIcon(
+                                expanded = courseMenuExpanded && matchingCourses.isNotEmpty()
+                            )
+                        },
+                        modifier = Modifier
+                            .menuAnchor()
+                            .fillMaxWidth()
+                    )
+                    ExposedDropdownMenu(
+                        expanded = courseMenuExpanded && matchingCourses.isNotEmpty(),
+                        onDismissRequest = { courseMenuExpanded = false }
+                    ) {
+                        matchingCourses.forEach { course ->
+                            DropdownMenuItem(
+                                text = {
+                                    Column {
+                                        Text(course.name)
+                                        if (course.code.isNotBlank()) {
+                                            Text(
+                                                course.code,
+                                                style = MaterialTheme.typography.bodySmall,
+                                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                                            )
+                                        }
+                                    }
+                                },
+                                onClick = {
+                                    courseName = course.name
+                                    courseMenuExpanded = false
+                                }
+                            )
                         }
                     }
                 }
+                Text(
+                    "إذا لم تكن المادة مسجلة، ستُضاف تلقائيًا إلى قائمة المواد.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
 
                 Text("اليوم:")
-                Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(2.dp)) {
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .horizontalScroll(rememberScrollState()),
+                    horizontalArrangement = Arrangement.spacedBy(6.dp)
+                ) {
                     days.forEach { (d, label) ->
                         val isSel = selectedDay == d
-                        Button(
+                        androidx.compose.material3.FilterChip(
                             onClick = { selectedDay = d },
-                            colors = androidx.compose.material3.ButtonDefaults.buttonColors(
-                                containerColor = if (isSel) JimPrimaryBlue else MaterialTheme.colorScheme.surfaceVariant
-                            ),
-                            modifier = Modifier.weight(1f)
-                        ) {
-                            Text(label.take(3), fontSize = 10.sp, color = if (isSel) Color.White else MaterialTheme.colorScheme.onSurface)
-                        }
+                            selected = isSel,
+                            label = { Text(label, fontSize = 11.sp) }
+                        )
                     }
                 }
 
@@ -494,9 +540,10 @@ fun AddSessionDialog(
                         label = { Text("القاعة / المعمل") },
                         modifier = Modifier.weight(1f)
                     )
-                    Button(
+                    androidx.compose.material3.OutlinedButton(
                         onClick = { sessionType = if (sessionType == "محاضرة") "معمل" else "محاضرة" },
-                        modifier = Modifier.weight(1f).align(Alignment.CenterVertically)
+                        modifier = Modifier.weight(1f).align(Alignment.CenterVertically),
+                        shape = RoundedCornerShape(12.dp)
                     ) {
                         Text(sessionType)
                     }
@@ -515,11 +562,11 @@ fun AddSessionDialog(
         },
         confirmButton = {
             Button(
-                enabled = validTimeRange && !isSaving,
+                enabled = courseName.isNotBlank() && validTimeRange && !isSaving,
                 onClick = {
                     isSaving = true
                     saveError = null
-                    onConfirm(selectedCourseId, selectedDay, startTime, endTime, classroom, sessionType) { result ->
+                    onConfirm(courseName.trim(), selectedDay, startTime, endTime, classroom, sessionType) { result ->
                         isSaving = false
                         if (result.isFailure) {
                             saveError = "تعذر حفظ الحصة. حاول مرة أخرى."

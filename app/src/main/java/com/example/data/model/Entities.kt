@@ -153,7 +153,7 @@ data class StudentProfileEntity(
     val totalCredits: Int = 0,
     val completedCredits: Int = 0,
     val semesterCredits: Int = 0,
-    val isDarkMode: Boolean = true,
+    val isDarkMode: Boolean = false,
     val notificationsEnabled: Boolean = true,
     val notifyAssignments: Boolean = true,
     val notifyExams: Boolean = true,
