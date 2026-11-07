@@ -6,6 +6,7 @@ import android.app.PendingIntent
 import android.content.Context
 import android.content.Intent
 import android.os.Build
+import android.util.Log
 import androidx.core.app.NotificationCompat
 import androidx.core.app.NotificationManagerCompat
 import com.example.MainActivity
@@ -17,6 +18,7 @@ object JimNotificationHelper {
     const val NOTIF_ID_DAILY = 1001
     const val NOTIF_ID_ASSIGNMENT = 1002
     const val NOTIF_ID_EXAM = 1003
+    const val NOTIF_ID_DAILY_TASKS = -1004
 
     fun createNotificationChannel(context: Context) {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
@@ -59,8 +61,8 @@ object JimNotificationHelper {
         try {
             val manager = NotificationManagerCompat.from(context)
             manager.notify(notificationId, builder.build())
-        } catch (_: SecurityException) {
-            // Permission not granted yet
+        } catch (error: SecurityException) {
+            Log.e("JimNotification", "Notification permission is unavailable", error)
         }
     }
 

@@ -120,4 +120,32 @@ class ScheduleTextParserTest {
         assertEquals(listOf("08:00" to "09:00", "09:15" to "10:15"),
             sessions.map { it.startTime to it.endTime })
     }
+
+    @Test
+    fun keepsAllThreeThursdayLecturesAndPreservesCourseNames() {
+        val sessions = ScheduleTextParser.parse(
+            """
+                الخميس:
+                مقدمة مناهج البحث 08:00 - 09:00 قاعة H1
+                برمجة-١ 09:15 - 10:15 Lab2
+                نظم إدارة المعلومات 11:00 - 12:00 قاعة 204
+            """.trimIndent()
+        )
+
+        assertEquals(3, sessions.size)
+        assertTrue(sessions.all { it.dayOfWeek == 5 })
+        assertEquals(
+            listOf("مقدمة مناهج البحث", "برمجة-١", "نظم إدارة المعلومات"),
+            sessions.map { it.courseName }
+        )
+        assertEquals(listOf("08:00", "09:15", "11:00"), sessions.map { it.startTime })
+    }
+
+    @Test
+    fun formatsStored24HourTimesForTwelveHourManualEntryDisplay() {
+        assertEquals("12:00 ص", ScheduleTextParser.formatTimeForDisplay("00:00"))
+        assertEquals("12:05 م", ScheduleTextParser.formatTimeForDisplay("12:05"))
+        assertEquals("3:45 م", ScheduleTextParser.formatTimeForDisplay("15:45"))
+        assertEquals(null, ScheduleTextParser.formatTimeForDisplay("25:00"))
+    }
 }

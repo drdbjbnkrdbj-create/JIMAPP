@@ -22,6 +22,7 @@ import androidx.compose.material.icons.automirrored.filled.ArrowForwardIos
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Checklist
 import androidx.compose.material.icons.filled.Delete
+import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
@@ -38,7 +39,6 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateListOf
-import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
@@ -49,6 +49,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
 import com.example.data.model.CourseEntity
 import com.example.ui.JimViewModel
@@ -70,6 +71,7 @@ fun CoursesScreen(
     val courses by viewModel.courses.collectAsState()
     val searchQuery by viewModel.courseSearchQuery.collectAsState()
     var showAddDialog by remember { mutableStateOf(false) }
+    var courseToEdit by remember { mutableStateOf<CourseEntity?>(null) }
     var courseToDelete by remember { mutableStateOf<CourseEntity?>(null) }
     val selectedCourseIds = remember { mutableStateListOf<Long>() }
     var selectionMode by remember { mutableStateOf(false) }
@@ -202,6 +204,7 @@ fun CoursesScreen(
                         if (!selectedCourseIds.remove(course.id)) selectedCourseIds.add(course.id)
                     },
                     onClick = { if (!selectionMode) onOpenCourse(course.id) },
+                    onEdit = { courseToEdit = course },
                     onDelete = { courseToDelete = course }
                 )
             }
@@ -218,6 +221,28 @@ fun CoursesScreen(
             onConfirm = { name, code, instructor, classroom, credits, color, icon, desc ->
                 viewModel.addCourse(name, code, instructor, classroom, credits, color, icon, desc)
                 showAddDialog = false
+            }
+        )
+    }
+
+    courseToEdit?.let { course ->
+        AddCourseDialog(
+            initialCourse = course,
+            onDismiss = { courseToEdit = null },
+            onConfirm = { name, code, instructor, classroom, credits, color, icon, desc ->
+                viewModel.updateCourse(
+                    course.copy(
+                        name = name,
+                        code = code,
+                        instructor = instructor,
+                        classroom = classroom,
+                        creditHours = credits,
+                        colorHex = color,
+                        iconKey = icon,
+                        description = desc
+                    )
+                )
+                courseToEdit = null
             }
         )
     }
@@ -256,6 +281,7 @@ fun CourseItemCard(
     isSelected: Boolean,
     onToggleSelected: () -> Unit,
     onClick: () -> Unit,
+    onEdit: () -> Unit,
     onDelete: () -> Unit
 ) {
     Card(
@@ -299,6 +325,13 @@ fun CourseItemCard(
             }
 
             if (!selectionMode) {
+                IconButton(onClick = onEdit, modifier = Modifier.size(36.dp)) {
+                    Icon(
+                        imageVector = Icons.Default.Edit,
+                        contentDescription = "تعديل المادة",
+                        tint = MaterialTheme.colorScheme.primary
+                    )
+                }
                 IconButton(onClick = onDelete, modifier = Modifier.size(36.dp)) {
                     Icon(
                         imageVector = Icons.Default.Delete,
@@ -319,17 +352,30 @@ fun CourseItemCard(
 
 @Composable
 fun AddCourseDialog(
+    initialCourse: CourseEntity? = null,
     onDismiss: () -> Unit,
     onConfirm: (String, String, String, String, Int, String, String, String) -> Unit
 ) {
-    var name by remember { mutableStateOf("") }
-    var code by remember { mutableStateOf("") }
-    var instructor by remember { mutableStateOf("") }
-    var classroom by remember { mutableStateOf("") }
-    var credits by remember { mutableIntStateOf(3) }
-    var selectedColor by remember { mutableStateOf("#2563EB") }
-    var selectedIcon by remember { mutableStateOf("code") }
-    var description by remember { mutableStateOf("") }
+    var name by remember(initialCourse) { mutableStateOf(initialCourse?.name.orEmpty()) }
+    var code by remember(initialCourse) { mutableStateOf(initialCourse?.code.orEmpty()) }
+    var instructor by remember(initialCourse) { mutableStateOf(initialCourse?.instructor.orEmpty()) }
+    var classroom by remember(initialCourse) { mutableStateOf(initialCourse?.classroom.orEmpty()) }
+    var credits by remember(initialCourse) {
+        mutableStateOf((initialCourse?.creditHours ?: 3).toString())
+    }
+    var selectedColor by remember(initialCourse) {
+        mutableStateOf(initialCourse?.colorHex ?: "#2563EB")
+    }
+    var selectedIcon by remember(initialCourse) {
+        mutableStateOf(initialCourse?.iconKey ?: "code")
+    }
+    var description by remember(initialCourse) {
+        mutableStateOf(initialCourse?.description.orEmpty())
+    }
+    val parsedCredits = credits
+        .map { char -> char.digitToIntOrNull()?.digitToChar() ?: char }
+        .joinToString("")
+        .toIntOrNull()
 
     val colorOptions = listOf("#2563EB", "#10B981", "#F59E0B", "#8B5CF6", "#EF4444", "#06B6D4")
     val iconOptions = listOf(
@@ -342,7 +388,12 @@ fun AddCourseDialog(
 
     AlertDialog(
         onDismissRequest = onDismiss,
-        title = { Text(text = "إضافة مادة جديدة", fontWeight = FontWeight.Bold) },
+        title = {
+            Text(
+                text = if (initialCourse == null) "إضافة مادة جديدة" else "تعديل بيانات المادة",
+                fontWeight = FontWeight.Bold
+            )
+        },
         text = {
             Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
                 OutlinedTextField(
@@ -374,12 +425,25 @@ fun AddCourseDialog(
                         modifier = Modifier.weight(1f)
                     )
                     OutlinedTextField(
-                        value = credits.toString(),
-                        onValueChange = { credits = it.toIntOrNull() ?: 3 },
+                        value = credits,
+                        onValueChange = { value ->
+                            if (value.all(Char::isDigit)) credits = value
+                        },
                         label = { Text("الساعات") },
+                        keyboardOptions = androidx.compose.foundation.text.KeyboardOptions(
+                            keyboardType = KeyboardType.Number
+                        ),
                         modifier = Modifier.weight(1f)
                     )
                 }
+
+                OutlinedTextField(
+                    value = description,
+                    onValueChange = { description = it },
+                    label = { Text("وصف المادة") },
+                    modifier = Modifier.fillMaxWidth(),
+                    minLines = 2
+                )
 
                 Text(text = "اختر لون المادة:", style = MaterialTheme.typography.bodySmall)
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -409,13 +473,13 @@ fun AddCourseDialog(
         confirmButton = {
             Button(
                 onClick = {
-                    if (name.isNotBlank() && code.isNotBlank()) {
-                        onConfirm(name, code, instructor, classroom, credits, selectedColor, selectedIcon, description)
+                    if (name.isNotBlank() && code.isNotBlank() && parsedCredits != null) {
+                        onConfirm(name, code, instructor, classroom, parsedCredits, selectedColor, selectedIcon, description)
                     }
                 },
-                enabled = name.isNotBlank() && code.isNotBlank()
+                enabled = name.isNotBlank() && code.isNotBlank() && parsedCredits != null
             ) {
-                Text("إضافة")
+                Text(if (initialCourse == null) "إضافة" else "حفظ التعديلات")
             }
         },
         dismissButton = {

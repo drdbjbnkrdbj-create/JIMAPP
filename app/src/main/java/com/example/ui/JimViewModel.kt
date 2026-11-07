@@ -20,6 +20,7 @@ import com.example.data.model.StudentProfileEntity
 import com.example.data.model.TimetableImportEntry
 import com.example.data.model.TimetableSessionEntity
 import com.example.notifications.JimNotificationHelper
+import com.example.notifications.DailyTaskReminderScheduler
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
@@ -88,6 +89,7 @@ class JimViewModel(application: Application) : AndroidViewModel(application) {
         }
 
         JimNotificationHelper.createNotificationChannel(application)
+        DailyTaskReminderScheduler.rescheduleFromPreferences(application)
 
         val preferences = application.getSharedPreferences("jim_preferences", Context.MODE_PRIVATE)
         if (!preferences.getBoolean("bundled_examples_removed", false)) {
@@ -572,11 +574,27 @@ class JimViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     fun triggerTestNotification(context: Context) {
+        val pendingAssignments = assignments.value.filter { it.status != "COMPLETED" }
+        val courseNames = courses.value.associate { it.id to it.name }
+        val message = if (pendingAssignments.isEmpty()) {
+            "لا توجد مهام غير منجزة حاليًا."
+        } else {
+            pendingAssignments.take(5).joinToString("\n") { assignment ->
+                val courseName = courseNames[assignment.courseId]
+                "• ${assignment.title}" +
+                    (courseName?.let { " ($it)" } ?: "") +
+                    assignment.dueDate.takeIf(String::isNotBlank)?.let { " - التسليم: $it" }.orEmpty()
+            } + if (pendingAssignments.size > 5) {
+                "\nو ${pendingAssignments.size - 5} مهام أخرى"
+            } else {
+                ""
+            }
+        }
         JimNotificationHelper.showTaskReminder(
             context,
             JimNotificationHelper.NOTIF_ID_DAILY,
-            "تذكير أكاديمي من جيم (Jim)",
-            "لديك مهمتان قادمتان هذا الأسبوع ومراجعة اختبار قواعد البيانات. استمر في التفوق!"
+            "معاينة تذكير المهام",
+            message
         )
     }
 

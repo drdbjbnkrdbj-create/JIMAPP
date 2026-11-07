@@ -13,15 +13,15 @@ data class ParsedSessionDraft(
 
 object ScheduleTextParser {
     private val timePattern = Regex(
-        """(?<!\d)(\d{1,2})[:.٫：](\d{2})\s*(صباحاً|صباحا|صباح|مساءً|مساء|ص|م|AM|PM)?""",
+        """(?<!\p{Nd})(\p{Nd}{1,2})[:.٫：](\p{Nd}{2})\s*(صباحاً|صباحا|صباح|مساءً|مساء|ص|م|AM|PM)?""",
         RegexOption.IGNORE_CASE
     )
     private val roomPattern = Regex(
         listOf(
-            """قاعة\s*(?:رقم\s*)?[\p{L}\d-]+""",
-            """(?:معمل|مختبر)\s*(?:رقم\s*)?(?:Lab\s*)?[\p{L}]*\d+""",
-            """Lab\s*[\p{L}\d-]+""",
-            """[HC]\s*-?\s*\d+"""
+            """قاعة\s*(?:رقم\s*)?[\p{L}\p{Nd}-]+""",
+            """(?:معمل|مختبر)\s*(?:رقم\s*)?(?:Lab\s*)?[\p{L}]*\p{Nd}+""",
+            """Lab\s*[\p{L}\p{Nd}-]+""",
+            """[HC]\s*-?\s*\p{Nd}+"""
         ).joinToString("|"),
         RegexOption.IGNORE_CASE
     )
@@ -39,7 +39,7 @@ object ScheduleTextParser {
         var pendingText = ""
 
         for (rawLine in text.lines()) {
-            val line = normalizeDigits(rawLine).trim()
+            val line = rawLine.trim()
             if (line.isBlank()) continue
 
             val explicitDay = findDay(line)
@@ -129,11 +129,23 @@ object ScheduleTextParser {
         return end > start
     }
 
+    fun formatTimeForDisplay(time24: String): String? {
+        val minutes = parseClockTime(time24) ?: return null
+        val hour = minutes / 60
+        val minute = minutes % 60
+        val displayHour = when (hour % 12) {
+            0 -> 12
+            else -> hour % 12
+        }
+        val period = if (hour < 12) "ص" else "م"
+        return String.format(Locale.ROOT, "%d:%02d %s", displayHour, minute, period)
+    }
+
     private fun findDay(line: String): Int? =
         dayNames.firstNotNullOfOrNull { (names, day) ->
             if (names.any { name ->
                     Regex(
-                        """(?<![\p{L}])${Regex.escape(name)}(?![\p{L}])""",
+                        """^\s*${Regex.escape(name)}(?=$|[\s:：،,;|–—-])""",
                         RegexOption.IGNORE_CASE
                     ).containsMatchIn(line)
                 }
@@ -145,15 +157,16 @@ object ScheduleTextParser {
         }
 
     private fun removeDayNames(line: String): String =
-        dayNames.flatMap { it.first }.fold(line) { result, name ->
-            result.replace(
+        dayNames
+            .flatMap { it.first }
+            .firstNotNullOfOrNull { name ->
                 Regex(
-                    """(?<![\p{L}])${Regex.escape(name)}(?![\p{L}])""",
+                    """^\s*${Regex.escape(name)}(?=$|[\s:：،,;|–—-])""",
                     RegexOption.IGNORE_CASE
-                ),
-                " "
-            )
-        }
+                ).find(line)
+            }
+            ?.let { match -> line.removeRange(match.range).trimStart(' ', ':', '：', '،', ',', ';', '|', '–', '—', '-') }
+            ?: line
 
     private fun extractCourseName(sessionText: String): String {
         var courseName = timePattern.replace(sessionText, " ")
@@ -162,20 +175,17 @@ object ScheduleTextParser {
         }
 
         return courseName
-            .replace(Regex("""^[\s:：،,؛|–—-]*(?:معمل|مختبر)\s+"""), "")
-            .replace(
-                Regex("""(?<![\p{L}])(?:من|إلى|الى|حتى|الساعة|AM|PM)(?![\p{L}])""", RegexOption.IGNORE_CASE),
-                " "
-            )
-            .replace(Regex("""(?<![\p{L}])(?:اليوم|يوم|المادة|مادة)(?![\p{L}])"""), " ")
-            .replace(Regex("""[:：،,؛|–—-]"""), " ")
+            .replace(Regex("""^\s*(?:(?:المادة|مادة|اليوم|يوم)\s*[:：-]?\s*)+"""), "")
+            .replace(Regex("""^\s*(?:معمل|مختبر)\s+"""), "")
+            .replace(Regex("""\s+(?:من|إلى|الى|حتى|الساعة)\s*$"""), "")
+            .replace(Regex("""^[\s:：،,؛|–—-]+|[\s:：،,؛|–—-]+$"""), "")
             .replace(Regex("""\s+"""), " ")
             .trim()
     }
 
     private fun parseTime(hourText: String, minuteText: String, meridiemText: String): String? {
-        var hour = hourText.toIntOrNull() ?: return null
-        val minute = minuteText.toIntOrNull() ?: return null
+        var hour = normalizeDigits(hourText).toIntOrNull() ?: return null
+        val minute = normalizeDigits(minuteText).toIntOrNull() ?: return null
         val meridiem = meridiemText.lowercase(Locale.ROOT)
         val isPm = meridiem == "pm" || meridiem == "م" || meridiem.startsWith("مساء")
         val isAm = meridiem == "am" || meridiem == "ص" || meridiem.startsWith("صباح")

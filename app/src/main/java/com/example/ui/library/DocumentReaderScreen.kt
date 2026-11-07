@@ -1,12 +1,22 @@
 package com.example.ui.library
 
+import android.content.ActivityNotFoundException
+import android.content.Context
+import android.content.Intent
+import android.graphics.Bitmap
+import android.graphics.BitmapFactory
+import android.graphics.pdf.PdfRenderer
+import android.net.Uri
+import android.widget.Toast
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.Canvas
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.detectDragGestures
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -46,6 +56,7 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
@@ -54,6 +65,11 @@ import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.produceState
+import androidx.compose.ui.graphics.asImageBitmap
+import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -72,6 +88,9 @@ import com.example.ui.JimViewModel
 import com.example.ui.theme.JimNavyDark
 import com.example.ui.theme.JimPrimaryBlue
 import com.example.ui.theme.JimSkyAccent
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
+import java.io.IOException
 
 enum class StudyTool {
     NONE,
@@ -87,6 +106,14 @@ data class StrokeLine(
     val isHighlighter: Boolean = false
 )
 
+private data class DocumentPageState(
+    val isLoading: Boolean = false,
+    val bitmap: Bitmap? = null,
+    val pageCount: Int = 0,
+    val pageIndex: Int = 0,
+    val error: String? = null
+)
+
 @Composable
 fun DocumentReaderScreen(
     docId: Long,
@@ -96,10 +123,15 @@ fun DocumentReaderScreen(
 ) {
     BackHandler { onBack() }
 
+    val context = LocalContext.current
     val documents by viewModel.documents.collectAsState()
     val doc = documents.find { it.id == docId } ?: return
+    val documentUri = remember(doc.uri) { doc.uri?.let(Uri::parse) }
+    val canRenderInApp = documentUri != null &&
+        (doc.fileType.equals("PDF", ignoreCase = true) ||
+            doc.fileType.equals("IMAGE", ignoreCase = true))
 
-    var currentPage by remember { mutableIntStateOf(doc.lastReadPage) }
+    var currentPage by remember { mutableIntStateOf(doc.lastReadPage.coerceAtLeast(1)) }
     var zoomScale by remember { mutableFloatStateOf(1.0f) }
 
     // Study Mode Toolbar state
@@ -113,6 +145,46 @@ fun DocumentReaderScreen(
 
     val annotations by viewModel.getAnnotationsForDoc(docId).collectAsState()
     val pageAnnotations = annotations.filter { it.page == currentPage }
+    val pageState by produceState(
+        initialValue = DocumentPageState(isLoading = canRenderInApp),
+        key1 = documentUri,
+        key2 = currentPage,
+        key3 = doc.fileType
+    ) {
+        if (documentUri == null || !canRenderInApp) {
+            value = DocumentPageState()
+            return@produceState
+        }
+
+        value = DocumentPageState(isLoading = true)
+        try {
+            value = withContext(Dispatchers.IO) {
+                renderDocumentPage(context, documentUri, doc.fileType, currentPage - 1)
+            }
+        } catch (error: IOException) {
+            android.util.Log.e("DocumentReader", "Failed to render ${doc.title}", error)
+            value = DocumentPageState(error = "تعذرت قراءة الملف. تحقق من توفر الملف ثم حاول فتحه مجددًا.")
+        } catch (error: SecurityException) {
+            android.util.Log.e("DocumentReader", "No permission to read ${doc.title}", error)
+            value = DocumentPageState(error = "انتهت صلاحية الوصول إلى الملف. أعد استيراده من جهازك.")
+        } catch (error: IllegalArgumentException) {
+            android.util.Log.e("DocumentReader", "Invalid page in ${doc.title}", error)
+            value = DocumentPageState(error = "تعذر عرض هذه الصفحة من الملف.")
+        } catch (error: IllegalStateException) {
+            android.util.Log.e("DocumentReader", "Invalid document state for ${doc.title}", error)
+            value = DocumentPageState(error = "تعذر فتح الملف بهذا التنسيق.")
+        }
+    }
+
+    DisposableEffect(pageState.bitmap) {
+        onDispose { pageState.bitmap?.recycle() }
+    }
+
+    LaunchedEffect(pageState.pageCount) {
+        if (pageState.pageCount > 0) {
+            currentPage = currentPage.coerceIn(1, pageState.pageCount)
+        }
+    }
 
     // Auto-save last read page when leaving or changing page
     DisposableEffect(currentPage) {
@@ -213,16 +285,60 @@ fun DocumentReaderScreen(
 
                         Spacer(modifier = Modifier.height(14.dp))
 
-                        // Render text with highlight styling
-                        Text(
-                            text = doc.contentSnippet.ifEmpty {
-                                "محتوى المستند الأكاديمي:\n\nيحتوي هذا الملف على شروحات وتفاصيل المادة الدراسية، والتمارين المعتمدة للفصل الدراسي الحالي.\n\nيمكنك استخدام أدوات وضع الدراسة في الأسفل للرسم، تظليل النقاط المهمة، وإضافة الملاحظات الذكية."
-                            },
-                            style = MaterialTheme.typography.bodyLarge,
-                            fontSize = (15 * zoomScale).sp,
-                            lineHeight = (24 * zoomScale).sp,
-                            color = MaterialTheme.colorScheme.onSurface
-                        )
+                        when {
+                            pageState.isLoading -> Text(
+                                text = "جارٍ تحميل الصفحة...",
+                                style = MaterialTheme.typography.bodyMedium,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                            pageState.bitmap != null -> {
+                                pageState.bitmap?.let { bitmap ->
+                                    Image(
+                                        bitmap = bitmap.asImageBitmap(),
+                                        contentDescription = "صفحة ${pageState.pageIndex + 1} من ${pageState.pageCount}",
+                                        contentScale = ContentScale.FillWidth,
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .aspectRatio(bitmap.width.toFloat() / bitmap.height)
+                                            .graphicsLayer {
+                                                scaleX = zoomScale
+                                                scaleY = zoomScale
+                                            }
+                                    )
+                                }
+                            }
+                            pageState.error != null -> pageState.error?.let { errorMessage ->
+                                Text(
+                                    text = errorMessage,
+                                    style = MaterialTheme.typography.bodyMedium,
+                                    color = MaterialTheme.colorScheme.error
+                                )
+                            }
+                            documentUri != null && !doc.fileType.equals("PDF", true) &&
+                                !doc.fileType.equals("IMAGE", true) -> {
+                                Text(
+                                    text = "هذا النوع من الملفات يحتاج إلى تطبيق متوافق لفتحه.",
+                                    style = MaterialTheme.typography.bodyMedium,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                                )
+                                Spacer(modifier = Modifier.height(12.dp))
+                                Button(onClick = { openDocumentExternally(context, documentUri, doc.fileType) }) {
+                                    Text("فتح الملف بتطبيق آخر")
+                                }
+                            }
+                            doc.contentSnippet.isNotBlank() -> Text(
+                                text = doc.contentSnippet,
+                                style = MaterialTheme.typography.bodyLarge,
+                                fontSize = (15 * zoomScale).sp,
+                                lineHeight = (24 * zoomScale).sp,
+                                color = MaterialTheme.colorScheme.onSurface
+                            )
+                            else -> Text(
+                                text = "لا يوجد محتوى محفوظ للعرض. أضف ملفًا فعليًا أو افتحه بتطبيق متوافق.",
+                                style = MaterialTheme.typography.bodyMedium,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }
 
                         // Render Saved Callout Note (as seen in screenshot)
                         pageAnnotations.forEach { annotation ->
@@ -346,15 +462,18 @@ fun DocumentReaderScreen(
                     }
 
                     Text(
-                        text = "$currentPage / ${doc.totalPages}",
+                        text = "$currentPage / ${pageState.pageCount.takeIf { it > 0 } ?: doc.totalPages}",
                         style = MaterialTheme.typography.titleSmall,
                         fontWeight = FontWeight.Bold,
                         color = MaterialTheme.colorScheme.onSurface
                     )
 
                     IconButton(
-                        onClick = { if (currentPage < doc.totalPages) currentPage++ },
-                        enabled = currentPage < doc.totalPages
+                        onClick = {
+                            val pageCount = pageState.pageCount.takeIf { it > 0 } ?: doc.totalPages
+                            if (currentPage < pageCount) currentPage++
+                        },
+                        enabled = currentPage < (pageState.pageCount.takeIf { it > 0 } ?: doc.totalPages)
                     ) {
                         Text(text = "التالي", style = MaterialTheme.typography.labelSmall)
                     }
@@ -473,5 +592,76 @@ fun StudyToolButton(
             tint = if (isSelected) JimPrimaryBlue else MaterialTheme.colorScheme.onSurfaceVariant,
             modifier = Modifier.size(20.dp)
         )
+    }
+}
+
+private fun renderDocumentPage(
+    context: Context,
+    uri: Uri,
+    fileType: String,
+    requestedPageIndex: Int
+): DocumentPageState {
+    if (fileType.equals("IMAGE", ignoreCase = true)) {
+        val bitmap = context.contentResolver.openInputStream(uri)?.use(BitmapFactory::decodeStream)
+            ?: throw IOException("Could not decode image")
+        return DocumentPageState(
+            bitmap = bitmap,
+            pageCount = 1,
+            pageIndex = 0
+        )
+    }
+
+    val descriptor = context.contentResolver.openFileDescriptor(uri, "r")
+        ?: throw IOException("Could not open document")
+    descriptor.use { fileDescriptor ->
+        PdfRenderer(fileDescriptor).use { renderer ->
+            if (renderer.pageCount == 0) throw IOException("PDF has no pages")
+            val pageIndex = requestedPageIndex.coerceIn(0, renderer.pageCount - 1)
+            renderer.openPage(pageIndex).use { page ->
+                val bitmap = Bitmap.createBitmap(page.width, page.height, Bitmap.Config.ARGB_8888)
+                try {
+                    page.render(bitmap, null, null, PdfRenderer.Page.RENDER_MODE_FOR_DISPLAY)
+                } catch (error: RuntimeException) {
+                    bitmap.recycle()
+                    throw error
+                }
+                return DocumentPageState(
+                    bitmap = bitmap,
+                    pageCount = renderer.pageCount,
+                    pageIndex = pageIndex
+                )
+            }
+        }
+    }
+}
+
+private fun openDocumentExternally(context: Context, uri: Uri, fileType: String) {
+    val extension = uri.lastPathSegment
+        ?.substringAfterLast('.', "")
+        ?.lowercase()
+    val fallbackMimeType = when (extension) {
+        "doc" -> "application/msword"
+        "docx" -> "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+        "odt" -> "application/vnd.oasis.opendocument.text"
+        "ppt" -> "application/vnd.ms-powerpoint"
+        "pptx" -> "application/vnd.openxmlformats-officedocument.presentationml.presentation"
+        "odp" -> "application/vnd.oasis.opendocument.presentation"
+        else -> when (fileType.uppercase()) {
+            "WORD" -> "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+            "PPTX" -> "application/vnd.openxmlformats-officedocument.presentationml.presentation"
+            else -> "*/*"
+        }
+    }
+    val mimeType = context.contentResolver.getType(uri)
+        ?.takeUnless { it == "application/octet-stream" || it == "*/*" }
+        ?: fallbackMimeType
+    val intent = Intent(Intent.ACTION_VIEW)
+        .setDataAndType(uri, mimeType)
+        .addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_ACTIVITY_NEW_TASK)
+
+    try {
+        context.startActivity(Intent.createChooser(intent, "فتح ${fileType}"))
+    } catch (error: ActivityNotFoundException) {
+        Toast.makeText(context, "لم يتم العثور على تطبيق يدعم هذا النوع من الملفات.", Toast.LENGTH_LONG).show()
     }
 }

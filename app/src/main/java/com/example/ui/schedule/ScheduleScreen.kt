@@ -1,5 +1,6 @@
 package com.example.ui.schedule
 
+import android.app.TimePickerDialog
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -415,6 +416,7 @@ fun AddSessionDialog(
     onDismiss: () -> Unit,
     onConfirm: (String, Int, String, String, String, String, (Result<Unit>) -> Unit) -> Unit
 ) {
+    val context = LocalContext.current
     var courseName by remember { mutableStateOf("") }
     var courseMenuExpanded by remember { mutableStateOf(false) }
     var selectedDay by remember { mutableIntStateOf(initialDay) }
@@ -432,6 +434,21 @@ fun AddSessionDialog(
     }
 
     val days = listOf(1 to "الأحد", 2 to "الإثنين", 3 to "الثلاثاء", 4 to "الأربعاء", 5 to "الخميس")
+
+    fun pickTime(currentTime: String, onPicked: (String) -> Unit) {
+        val parts = currentTime.split(":")
+        val hour = parts.getOrNull(0)?.toIntOrNull() ?: 8
+        val minute = parts.getOrNull(1)?.toIntOrNull() ?: 0
+        TimePickerDialog(
+            context,
+            { _, selectedHour, selectedMinute ->
+                onPicked(String.format(java.util.Locale.ROOT, "%02d:%02d", selectedHour, selectedMinute))
+            },
+            hour,
+            minute,
+            false
+        ).show()
+    }
 
     AlertDialog(
         onDismissRequest = onDismiss,
@@ -520,16 +537,22 @@ fun AddSessionDialog(
 
                 Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     OutlinedTextField(
-                        value = startTime,
-                        onValueChange = { startTime = it },
+                        value = ScheduleTextParser.formatTimeForDisplay(startTime).orEmpty(),
+                        onValueChange = {},
                         label = { Text("البداية") },
-                        modifier = Modifier.weight(1f)
+                        readOnly = true,
+                        modifier = Modifier
+                            .weight(1f)
+                            .clickable { pickTime(startTime) { startTime = it } }
                     )
                     OutlinedTextField(
-                        value = endTime,
-                        onValueChange = { endTime = it },
+                        value = ScheduleTextParser.formatTimeForDisplay(endTime).orEmpty(),
+                        onValueChange = {},
                         label = { Text("النهاية") },
-                        modifier = Modifier.weight(1f)
+                        readOnly = true,
+                        modifier = Modifier
+                            .weight(1f)
+                            .clickable { pickTime(endTime) { endTime = it } }
                     )
                 }
 

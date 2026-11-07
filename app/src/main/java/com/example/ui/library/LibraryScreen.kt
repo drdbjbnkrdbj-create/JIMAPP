@@ -1,8 +1,5 @@
 package com.example.ui.library
 
-import android.content.ActivityNotFoundException
-import android.content.Intent
-import android.net.Uri
 import android.widget.Toast
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
@@ -281,30 +278,7 @@ fun LibraryScreen(
                             onToggleSelected = {
                                 if (!selectedDocumentIds.remove(doc.id)) selectedDocumentIds.add(doc.id)
                             },
-                            onClick = {
-                                val documentUri = doc.uri
-                                if (documentUri == null) {
-                                    onOpenDoc(doc.id)
-                                } else {
-                                    val fileUri = Uri.parse(documentUri)
-                                    val mimeType = context.contentResolver.getType(fileUri)
-                                        ?: "*/*"
-                                    val openIntent = Intent(Intent.ACTION_VIEW)
-                                        .setDataAndType(fileUri, mimeType)
-                                        .addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
-                                    try {
-                                        context.startActivity(
-                                            Intent.createChooser(openIntent, "فتح ${doc.title}")
-                                        )
-                                    } catch (error: ActivityNotFoundException) {
-                                        Toast.makeText(
-                                            context,
-                                            "لا يوجد تطبيق لفتح هذا النوع من الملفات.",
-                                            Toast.LENGTH_LONG
-                                        ).show()
-                                    }
-                                }
-                            },
+                            onClick = { onOpenDoc(doc.id) },
                             onShare = { shareDocuments(context, listOf(doc)) },
                             onBookmarkToggle = { viewModel.toggleDocBookmark(doc) },
                             onDelete = { documentToDelete = doc }

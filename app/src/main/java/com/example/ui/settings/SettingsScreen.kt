@@ -3,8 +3,15 @@ package com.example.ui.settings
 import android.content.ClipData
 import android.content.ClipboardManager
 import android.content.Context
+import android.content.Intent
+import android.app.TimePickerDialog
+import android.content.pm.PackageManager
+import android.os.Build
+import android.provider.Settings as AndroidSettings
 import android.widget.Toast
 import androidx.activity.compose.BackHandler
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
@@ -55,8 +62,11 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import androidx.core.app.NotificationManagerCompat
+import androidx.core.content.ContextCompat
 import com.example.ui.JimViewModel
 import com.example.ui.components.JimTopBar
+import com.example.notifications.DailyTaskReminderScheduler
 import com.example.ui.theme.JimPrimaryBlue
 
 @Composable
@@ -68,6 +78,56 @@ fun SettingsScreen(
     BackHandler { onBack() }
     val context = LocalContext.current
     val profile by viewModel.profile.collectAsState()
+    var dailyReminderEnabled by remember(context) {
+        mutableStateOf(DailyTaskReminderScheduler.isEnabled(context))
+    }
+    var dailyReminderTime by remember(context) {
+        mutableStateOf(DailyTaskReminderScheduler.getTime(context))
+    }
+    var pendingPermissionTime by remember { mutableStateOf<String?>(null) }
+
+    val notificationPermissionLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.RequestPermission()
+    ) { granted ->
+        val requestedTime = pendingPermissionTime ?: dailyReminderTime
+        pendingPermissionTime = null
+        if (granted && NotificationManagerCompat.from(context).areNotificationsEnabled()) {
+            DailyTaskReminderScheduler.configure(context, enabled = true, time = requestedTime)
+            dailyReminderTime = requestedTime
+            dailyReminderEnabled = true
+        } else {
+            Toast.makeText(context, "يلزم السماح بإشعارات جيم لتفعيل التذكير اليومي.", Toast.LENGTH_LONG).show()
+        }
+    }
+
+    fun enableDailyReminder(time: String) {
+        if (
+            Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU &&
+            ContextCompat.checkSelfPermission(context, android.Manifest.permission.POST_NOTIFICATIONS) !=
+            PackageManager.PERMISSION_GRANTED
+        ) {
+            pendingPermissionTime = time
+            notificationPermissionLauncher.launch(android.Manifest.permission.POST_NOTIFICATIONS)
+            return
+        }
+
+        if (!NotificationManagerCompat.from(context).areNotificationsEnabled()) {
+            Toast.makeText(context, "فعّل إشعارات جيم من إعدادات الجهاز أولاً.", Toast.LENGTH_LONG).show()
+            try {
+                context.startActivity(
+                    Intent(AndroidSettings.ACTION_APP_NOTIFICATION_SETTINGS)
+                        .putExtra(AndroidSettings.EXTRA_APP_PACKAGE, context.packageName)
+                )
+            } catch (error: android.content.ActivityNotFoundException) {
+                Toast.makeText(context, "تعذر فتح إعدادات الإشعارات.", Toast.LENGTH_LONG).show()
+            }
+            return
+        }
+
+        DailyTaskReminderScheduler.configure(context, enabled = true, time = time)
+        dailyReminderTime = time
+        dailyReminderEnabled = true
+    }
 
     var showBackupDialog by remember { mutableStateOf(false) }
     var showRestoreDialog by remember { mutableStateOf(false) }
@@ -139,7 +199,11 @@ fun SettingsScreen(
             SettingsTileItem(
                 icon = Icons.Default.Notifications,
                 title = "الإشعارات",
-                subtitle = if (profile.notificationsEnabled) "مفعلة للمهام والاختبارات" else "معطلة",
+                subtitle = if (dailyReminderEnabled) {
+                    "تذكير يومي بالمهام غير المنجزة • ${formatReminderTime(dailyReminderTime)}"
+                } else {
+                    "التذكير اليومي متوقف"
+                },
                 onClick = { showNotificationSettingsDialog = true }
             )
 
@@ -257,12 +321,70 @@ fun SettingsScreen(
 
     // Notification Settings Dialog
     if (showNotificationSettingsDialog) {
+        val timeParts = dailyReminderTime.split(":")
+        val reminderHour = timeParts.getOrNull(0)?.toIntOrNull() ?: 8
+        val reminderMinute = timeParts.getOrNull(1)?.toIntOrNull() ?: 0
         AlertDialog(
             onDismissRequest = { showNotificationSettingsDialog = false },
             title = { Text("إعدادات الإشعارات والتنبيهات", fontWeight = FontWeight.Bold) },
             text = {
                 Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                    Text("قاعدة الخصوصية: لا يتم إرسال أي إشعارات مزعجة للمحاضرات العادية، بل للمهام والاختبارات العاجلة فقط.")
+                    Text("سيصلك كل يوم تذكير بالمهام التي لم تُنجز بعد. لا يُرسل إشعار إذا لم تكن لديك مهام متبقية.")
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.SpaceBetween
+                    ) {
+                        Text("تفعيل التذكير اليومي")
+                        Switch(
+                            checked = dailyReminderEnabled,
+                            onCheckedChange = { enabled ->
+                                if (enabled) {
+                                    enableDailyReminder(dailyReminderTime)
+                                } else {
+                                    DailyTaskReminderScheduler.configure(
+                                        context,
+                                        enabled = false,
+                                        time = dailyReminderTime
+                                    )
+                                    dailyReminderEnabled = false
+                                }
+                            },
+                            modifier = Modifier.testTag("daily_task_reminder_switch")
+                        )
+                    }
+                    Button(
+                        onClick = {
+                            TimePickerDialog(
+                                context,
+                                { _, selectedHour, selectedMinute ->
+                                    val selectedTime = String.format(
+                                        java.util.Locale.ROOT,
+                                        "%02d:%02d",
+                                        selectedHour,
+                                        selectedMinute
+                                    )
+                                    dailyReminderTime = selectedTime
+                                    DailyTaskReminderScheduler.configure(
+                                        context,
+                                        enabled = dailyReminderEnabled,
+                                        time = selectedTime
+                                    )
+                                },
+                                reminderHour,
+                                reminderMinute,
+                                false
+                            ).show()
+                        },
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Text("وقت التذكير: ${formatReminderTime(dailyReminderTime)}")
+                    }
+                    Text(
+                        "قد يتأخر وصول التنبيه قليلًا عند تفعيل وضع توفير الطاقة.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
                     Button(
                         onClick = {
                             viewModel.triggerTestNotification(context)
@@ -315,6 +437,18 @@ fun SettingsScreen(
             }
         )
     }
+}
+
+private fun formatReminderTime(time: String): String {
+    val parts = time.split(":")
+    val hour = parts.getOrNull(0)?.toIntOrNull() ?: return time
+    val minute = parts.getOrNull(1)?.toIntOrNull() ?: return time
+    val displayHour = when (hour % 12) {
+        0 -> 12
+        else -> hour % 12
+    }
+    val period = if (hour < 12) "ص" else "م"
+    return String.format(java.util.Locale.ROOT, "%d:%02d %s", displayHour, minute, period)
 }
 
 @Composable
