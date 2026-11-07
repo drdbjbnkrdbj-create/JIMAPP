@@ -88,6 +88,7 @@ fun LibraryScreen(
 
     var showAddFileDialog by remember { mutableStateOf(false) }
     var documentToDelete by remember { mutableStateOf<LibraryDocumentEntity?>(null) }
+    var documentToOpen by remember { mutableStateOf<LibraryDocumentEntity?>(null) }
     val selectedDocumentIds = remember { mutableStateListOf<Long>() }
     var selectionMode by remember { mutableStateOf(false) }
     var documentsPendingDeletion by remember { mutableStateOf<List<LibraryDocumentEntity>>(emptyList()) }
@@ -278,7 +279,7 @@ fun LibraryScreen(
                             onToggleSelected = {
                                 if (!selectedDocumentIds.remove(doc.id)) selectedDocumentIds.add(doc.id)
                             },
-                            onClick = { onOpenDoc(doc.id) },
+                            onClick = { documentToOpen = doc },
                             onShare = { shareDocuments(context, listOf(doc)) },
                             onBookmarkToggle = { viewModel.toggleDocBookmark(doc) },
                             onDelete = { documentToDelete = doc }
@@ -292,6 +293,14 @@ fun LibraryScreen(
 
             }
         }
+    }
+
+    documentToOpen?.let { document ->
+        DocumentOpenOptionsDialog(
+            document = document,
+            onDismiss = { documentToOpen = null },
+            onOpenInApp = { onOpenDoc(document.id) }
+        )
     }
 
     documentsPendingDeletion.takeIf { it.isNotEmpty() }?.let { selectedDocuments ->

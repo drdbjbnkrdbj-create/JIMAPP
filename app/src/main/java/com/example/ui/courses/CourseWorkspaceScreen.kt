@@ -75,6 +75,7 @@ import com.example.ui.components.BulkSelectionActions
 import com.example.ui.components.BulkSelectionIndicator
 import com.example.ui.components.CourseIconBadge
 import com.example.ui.components.PriorityBadge
+import com.example.ui.library.DocumentOpenOptionsDialog
 import com.example.ui.library.rememberDocumentImportLauncher
 import com.example.ui.library.shareDocuments
 import com.example.ui.library.shareText
@@ -921,6 +922,9 @@ fun CourseFilesTabContent(
     var documentPendingDeletion by remember {
         mutableStateOf<com.example.data.model.LibraryDocumentEntity?>(null)
     }
+    var documentToOpen by remember {
+        mutableStateOf<com.example.data.model.LibraryDocumentEntity?>(null)
+    }
     LazyColumn(
         modifier = Modifier
             .fillMaxSize()
@@ -959,7 +963,7 @@ fun CourseFilesTabContent(
                     modifier = Modifier
                         .fillMaxWidth()
                         .clickable {
-                            if (selectionMode) onToggleSelection(doc.id) else onOpenFile(doc.id)
+                            if (selectionMode) onToggleSelection(doc.id) else documentToOpen = doc
                         },
                     shape = RoundedCornerShape(14.dp),
                     colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant)
@@ -1016,6 +1020,14 @@ fun CourseFilesTabContent(
                 onDelete(document)
                 documentPendingDeletion = null
             }
+        )
+    }
+
+    documentToOpen?.let { document ->
+        DocumentOpenOptionsDialog(
+            document = document,
+            onDismiss = { documentToOpen = null },
+            onOpenInApp = { onOpenFile(document.id) }
         )
     }
 }

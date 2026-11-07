@@ -1,13 +1,11 @@
 package com.example.ui.library
 
-import android.content.ActivityNotFoundException
 import android.content.Context
-import android.content.Intent
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
+import android.graphics.Matrix
 import android.graphics.pdf.PdfRenderer
 import android.net.Uri
-import android.widget.Toast
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.Image
@@ -173,6 +171,12 @@ fun DocumentReaderScreen(
         } catch (error: IllegalStateException) {
             android.util.Log.e("DocumentReader", "Invalid document state for ${doc.title}", error)
             value = DocumentPageState(error = "تعذر فتح الملف بهذا التنسيق.")
+        } catch (error: RuntimeException) {
+            android.util.Log.e("DocumentReader", "Unexpected failure rendering ${doc.title}", error)
+            value = DocumentPageState(error = "تعذر عرض الملف في قارئ جيم. جرّب فتحه بقارئ خارجي.")
+        } catch (error: OutOfMemoryError) {
+            android.util.Log.e("DocumentReader", "Not enough memory to render ${doc.title}", error)
+            value = DocumentPageState(error = "الملف كبير على العرض داخل التطبيق. جرّب فتحه بقارئ خارجي.")
         }
     }
 
@@ -308,11 +312,20 @@ fun DocumentReaderScreen(
                                 }
                             }
                             pageState.error != null -> pageState.error?.let { errorMessage ->
-                                Text(
-                                    text = errorMessage,
-                                    style = MaterialTheme.typography.bodyMedium,
-                                    color = MaterialTheme.colorScheme.error
-                                )
+                                Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                                    Text(
+                                        text = errorMessage,
+                                        style = MaterialTheme.typography.bodyMedium,
+                                        color = MaterialTheme.colorScheme.error
+                                    )
+                                    documentUri?.let {
+                                        Button(
+                                            onClick = { openDocumentWithExternalReader(context, doc) }
+                                        ) {
+                                            Text("فتح بقارئ خارجي")
+                                        }
+                                    }
+                                }
                             }
                             documentUri != null && !doc.fileType.equals("PDF", true) &&
                                 !doc.fileType.equals("IMAGE", true) -> {
@@ -322,7 +335,7 @@ fun DocumentReaderScreen(
                                     color = MaterialTheme.colorScheme.onSurfaceVariant
                                 )
                                 Spacer(modifier = Modifier.height(12.dp))
-                                Button(onClick = { openDocumentExternally(context, documentUri, doc.fileType) }) {
+                                Button(onClick = { openDocumentWithExternalReader(context, doc) }) {
                                     Text("فتح الملف بتطبيق آخر")
                                 }
                             }
@@ -602,8 +615,20 @@ private fun renderDocumentPage(
     requestedPageIndex: Int
 ): DocumentPageState {
     if (fileType.equals("IMAGE", ignoreCase = true)) {
-        val bitmap = context.contentResolver.openInputStream(uri)?.use(BitmapFactory::decodeStream)
-            ?: throw IOException("Could not decode image")
+        val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
+        context.contentResolver.openInputStream(uri)?.use {
+            BitmapFactory.decodeStream(it, null, bounds)
+        } ?: throw IOException("Could not open image")
+        if (bounds.outWidth <= 0 || bounds.outHeight <= 0) {
+            throw IOException("Image has invalid dimensions")
+        }
+        val options = BitmapFactory.Options().apply {
+            inSampleSize = DocumentRenderSize.imageSampleSize(bounds.outWidth, bounds.outHeight)
+            inPreferredConfig = Bitmap.Config.ARGB_8888
+        }
+        val bitmap = context.contentResolver.openInputStream(uri)?.use {
+            BitmapFactory.decodeStream(it, null, options)
+        } ?: throw IOException("Could not decode image")
         return DocumentPageState(
             bitmap = bitmap,
             pageCount = 1,
@@ -618,9 +643,16 @@ private fun renderDocumentPage(
             if (renderer.pageCount == 0) throw IOException("PDF has no pages")
             val pageIndex = requestedPageIndex.coerceIn(0, renderer.pageCount - 1)
             renderer.openPage(pageIndex).use { page ->
-                val bitmap = Bitmap.createBitmap(page.width, page.height, Bitmap.Config.ARGB_8888)
+                val (bitmapWidth, bitmapHeight) = DocumentRenderSize.pageSize(page.width, page.height)
+                val bitmap = Bitmap.createBitmap(bitmapWidth, bitmapHeight, Bitmap.Config.ARGB_8888)
                 try {
-                    page.render(bitmap, null, null, PdfRenderer.Page.RENDER_MODE_FOR_DISPLAY)
+                    val transform = Matrix().apply {
+                        setScale(
+                            bitmapWidth.toFloat() / page.width,
+                            bitmapHeight.toFloat() / page.height
+                        )
+                    }
+                    page.render(bitmap, null, transform, PdfRenderer.Page.RENDER_MODE_FOR_DISPLAY)
                 } catch (error: RuntimeException) {
                     bitmap.recycle()
                     throw error
@@ -632,36 +664,5 @@ private fun renderDocumentPage(
                 )
             }
         }
-    }
-}
-
-private fun openDocumentExternally(context: Context, uri: Uri, fileType: String) {
-    val extension = uri.lastPathSegment
-        ?.substringAfterLast('.', "")
-        ?.lowercase()
-    val fallbackMimeType = when (extension) {
-        "doc" -> "application/msword"
-        "docx" -> "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
-        "odt" -> "application/vnd.oasis.opendocument.text"
-        "ppt" -> "application/vnd.ms-powerpoint"
-        "pptx" -> "application/vnd.openxmlformats-officedocument.presentationml.presentation"
-        "odp" -> "application/vnd.oasis.opendocument.presentation"
-        else -> when (fileType.uppercase()) {
-            "WORD" -> "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
-            "PPTX" -> "application/vnd.openxmlformats-officedocument.presentationml.presentation"
-            else -> "*/*"
-        }
-    }
-    val mimeType = context.contentResolver.getType(uri)
-        ?.takeUnless { it == "application/octet-stream" || it == "*/*" }
-        ?: fallbackMimeType
-    val intent = Intent(Intent.ACTION_VIEW)
-        .setDataAndType(uri, mimeType)
-        .addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_ACTIVITY_NEW_TASK)
-
-    try {
-        context.startActivity(Intent.createChooser(intent, "فتح ${fileType}"))
-    } catch (error: ActivityNotFoundException) {
-        Toast.makeText(context, "لم يتم العثور على تطبيق يدعم هذا النوع من الملفات.", Toast.LENGTH_LONG).show()
     }
 }
